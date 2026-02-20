@@ -1,0 +1,36 @@
+# LiveKit
+livekit==1.0.25
+livekit-agents==1.4.1
+livekit-api==1.1.0
+livekit-plugins-deepgram==1.4.1
+livekit-plugins-cartesia==1.4.1
+livekit-plugins-silero==1.4.1
+livekit-plugins-openai==1.4.1
+
+# LLM / AI
+openai==2.17.0
+sentence-transformers==3.4.1
+
+# Storage
+aiosqlite==0.20.0
+chromadb==0.5.20
+
+# Web
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+jinja2==3.1.6
+python-multipart==0.0.6
+httpx==0.28.1
+
+# Telephony
+twilio==9.3.7
+
+# Config / Utilities
+pydantic-settings==2.6.1
+python-dotenv==1.0.1
+APScheduler==3.10.4
+aiofiles==25.1.0
+
+# ML
+numpy==1.26.4
+onnxruntime==1.20.1

@@ -1,0 +1,77 @@
+{# Expects: call, flag in context #}
+<tr class="hover:bg-gray-50 transition-colors
+           {% if flag and flag.urgency_level == 'red' and not flag.reviewed %}bg-red-50{% endif %}">
+
+  <!-- Urgency badge -->
+  <td class="px-4 py-3">
+    {% if flag %}
+      {% set level = flag.urgency_level %}
+      <span class="inline-block px-2 py-0.5 rounded-full text-xs font-semibold uppercase
+                   badge-{{ level }}">
+        {{ level }}
+      </span>
+    {% else %}
+      <span class="inline-block px-2 py-0.5 rounded-full text-xs font-medium badge-none">
+        pending
+      </span>
+    {% endif %}
+  </td>
+
+  <!-- Patient name -->
+  <td class="px-4 py-3 font-medium text-gray-900">{{ call.patient_name }}</td>
+
+  <!-- NHS Number (masked for privacy) -->
+  <td class="px-4 py-3 font-mono text-gray-600 text-xs">
+    {{ call.nhs_number[:3] }}·····{{ call.nhs_number[-3:] if call.nhs_number|length >= 6 else "·····" }}
+  </td>
+
+  <!-- Direction -->
+  <td class="px-4 py-3 capitalize text-gray-600">{{ call.direction }}</td>
+
+  <!-- Status -->
+  <td class="px-4 py-3">
+    <span class="text-xs capitalize
+                 {% if call.status == 'completed' %}text-green-700
+                 {% elif call.status == 'failed' or call.status == 'no_answer' %}text-red-600
+                 {% else %}text-amber-600{% endif %}">
+      {{ call.status.replace('_', ' ') }}
+    </span>
+  </td>
+
+  <!-- Duration -->
+  <td class="px-4 py-3 text-gray-500 text-xs">
+    {% if call.duration_seconds %}
+      {{ "%.0f"|format(call.duration_seconds) }}s
+    {% else %}
+      —
+    {% endif %}
+  </td>
+
+  <!-- Timestamp -->
+  <td class="px-4 py-3 text-gray-400 text-xs whitespace-nowrap">
+    {% if call.started_at %}
+      {{ call.started_at | int | string }}
+    {% endif %}
+  </td>
+
+  <!-- Reviewed status -->
+  <td class="px-4 py-3 text-xs">
+    {% if flag %}
+      {% if flag.reviewed %}
+        <span class="text-green-600">&#10003; Reviewed</span>
+      {% else %}
+        <span class="text-amber-500">Pending</span>
+      {% endif %}
+    {% else %}
+      <span class="text-gray-300">—</span>
+    {% endif %}
+  </td>
+
+  <!-- View link -->
+  <td class="px-4 py-3 text-right">
+    <a href="/calls/{{ call.call_id }}"
+       class="text-xs text-blue-600 hover:underline font-medium">
+      View →
+    </a>
+  </td>
+</tr>

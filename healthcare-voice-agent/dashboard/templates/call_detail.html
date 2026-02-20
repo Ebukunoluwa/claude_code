@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+{% block title %}{{ call.patient_name }} — Call Detail{% endblock %}
+
+{% block content %}
+<!-- Back link -->
+<a href="/" class="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline mb-6">
+  ← Back to Dashboard
+</a>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+  <!-- Left: Call metadata + urgency -->
+  <div class="lg:col-span-1 space-y-4">
+
+    <!-- Patient card -->
+    <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+      <h2 class="text-lg font-bold text-gray-800 mb-3">{{ call.patient_name }}</h2>
+      <dl class="space-y-1.5 text-sm">
+        <div class="flex justify-between">
+          <dt class="text-gray-500">NHS Number</dt>
+          <dd class="font-mono text-gray-800">{{ call.nhs_number }}</dd>
+        </div>
+        <div class="flex justify-between">
+          <dt class="text-gray-500">Phone</dt>
+          <dd>{{ call.phone_number or "—" }}</dd>
+        </div>
+        <div class="flex justify-between">
+          <dt class="text-gray-500">Direction</dt>
+          <dd class="capitalize">{{ call.direction }}</dd>
+        </div>
+        <div class="flex justify-between">
+          <dt class="text-gray-500">Status</dt>
+          <dd class="capitalize">{{ call.status }}</dd>
+        </div>
+        <div class="flex justify-between">
+          <dt class="text-gray-500">ID Verified</dt>
+          <dd>{{ "Yes" if call.identity_verified else "No" }}</dd>
+        </div>
+        {% if call.duration_seconds %}
+        <div class="flex justify-between">
+          <dt class="text-gray-500">Duration</dt>
+          <dd>{{ "%.0f"|format(call.duration_seconds) }}s</dd>
+        </div>
+        {% endif %}
+      </dl>
+    </div>
+
+    <!-- Urgency flag -->
+    {% if flag %}
+    <div class="rounded-xl border bg-white p-5 shadow-sm
+                {% if flag.urgency_level == 'red' %}border-red-300
+                {% elif flag.urgency_level == 'amber' %}border-amber-300
+                {% else %}border-green-300{% endif %}">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-semibold text-gray-700">Urgency Flag</h3>
+        {% include "partials/flag_badge.html" %}
+      </div>
+
+      {% if flag.reasons %}
+      <ul class="text-sm text-gray-600 space-y-1 mb-4">
+        {% for reason in flag.reasons %}
+        <li class="flex items-start gap-2">
+          <span class="mt-0.5 text-gray-400">•</span>
+          {{ reason }}
+        </li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+
+      <!-- Mark reviewed -->
+      {% if not flag.reviewed %}
+      <div id="review-form"
+           hx-post="/calls/{{ call.call_id }}/review"
+           hx-target="#review-form"
+           hx-swap="outerHTML">
+        <form>
+          <input type="hidden" name="reviewed_by" value="clinician" />
+          <button type="submit"
+                  class="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium
+                         text-white hover:bg-blue-700 transition-colors">
+            Mark as Reviewed
+          </button>
+        </form>
+      </div>
+      {% else %}
+      <p class="text-xs text-gray-500">
+        Reviewed by {{ flag.reviewed_by or "clinician" }}
+      </p>
+      {% endif %}
+    </div>
+    {% else %}
+    <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm text-sm text-gray-400">
+      No urgency flag — pipeline may still be processing.
+    </div>
+    {% endif %}
+
+  </div>
+
+  <!-- Right: Transcript + SOAP -->
+  <div class="lg:col-span-2 space-y-6">
+
+    <!-- SOAP Note -->
+    {% if summary %}
+    <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+      <h3 class="font-semibold text-gray-700 mb-3">SOAP Note</h3>
+      <pre class="whitespace-pre-wrap text-sm text-gray-700 font-mono leading-relaxed
+                  bg-gray-50 rounded-lg p-4 overflow-x-auto">{{ summary.soap_note }}</pre>
+      <p class="mt-2 text-xs text-gray-400">Model: {{ summary.model_used }}</p>
+    </div>
+    {% else %}
+    <div class="rounded-xl border border-dashed border-gray-200 bg-white p-5 text-center
+                text-sm text-gray-400">
+      SOAP note not yet generated.
+    </div>
+    {% endif %}
+
+    <!-- Transcript -->
+    {% if transcript %}
+    <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-semibold text-gray-700">Call Transcript</h3>
+        <span class="text-xs text-gray-400">{{ transcript.turn_count }} turns</span>
+      </div>
+      <div class="space-y-2 max-h-[32rem] overflow-y-auto pr-1">
+        {% for line in transcript.full_text.split('\n') %}
+        {% if line.startswith('[AGENT]:') %}
+        <div class="flex gap-2">
+          <span class="shrink-0 text-xs font-semibold text-blue-600 w-16 pt-0.5">Agent</span>
+          <p class="text-sm text-gray-700">{{ line[8:].strip() }}</p>
+        </div>
+        {% elif line.startswith('[PATIENT]:') %}
+        <div class="flex gap-2">
+          <span class="shrink-0 text-xs font-semibold text-gray-500 w-16 pt-0.5">Patient</span>
+          <p class="text-sm text-gray-800">{{ line[10:].strip() }}</p>
+        </div>
+        {% elif line.strip() %}
+        <p class="text-sm text-gray-500 italic">{{ line }}</p>
+        {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+    {% else %}
+    <div class="rounded-xl border border-dashed border-gray-200 bg-white p-5 text-center
+                text-sm text-gray-400">
+      Transcript not yet available.
+    </div>
+    {% endif %}
+
+  </div>
+</div>
+{% endblock %}
