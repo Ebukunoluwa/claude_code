@@ -23,13 +23,26 @@ class Settings(BaseSettings):
     # ── Cartesia ─────────────────────────────────────────────────────────────
     cartesia_api_key: str = Field(..., description="Cartesia API key")
     cartesia_voice_id: str = Field(
-        default="a0e99841-438c-4a64-b679-ae501e7d6091",
+        default="ee7ea9f8-c0c1-498c-9279-764d6b56d189",
         description="Cartesia voice ID (British English)",
     )
 
     # ── Groq ─────────────────────────────────────────────────────────────────
     groq_api_key: str = Field(..., description="Groq API key")
-    groq_model: str = Field(default="llama3-70b-8192", description="Groq model ID")
+    groq_model: str = Field(default="openai/gpt-oss-120b", description="Groq model ID")
+
+    # ── OpenAI (fallback LLM) ────────────────────────────────────────────────
+    openai_api_key: str = Field(default="", description="OpenAI API key (fallback LLM)")
+
+    # ── AssemblyAI (fallback STT) ────────────────────────────────────────────
+    assemblyai_api_key: str = Field(default="", description="AssemblyAI API key (fallback STT)")
+
+    # ── ElevenLabs (fallback TTS) ────────────────────────────────────────────
+    elevenlabs_api_key: str = Field(default="", description="ElevenLabs API key (fallback TTS)")
+    elevenlabs_voice_id: str = Field(
+        default="l7kNoIfnJKPg7779LI2t",
+        description="ElevenLabs voice ID",
+    )
 
     # ── Twilio ───────────────────────────────────────────────────────────────
     twilio_account_sid: str = Field(..., description="Twilio account SID")

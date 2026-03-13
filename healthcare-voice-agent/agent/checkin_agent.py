@@ -45,6 +45,7 @@ class CheckInAgent(Agent):
         self._started_at: float = time.time()
         self._identity_state: Optional[IdentityState] = None
         self._conversation_turns: list[tuple[str, str]] = []  # [(role, text), ...]
+        self._turn_end_time: float = 0.0  # when user last finished speaking
         self._triage_level: TriageLevel = TriageLevel.GREEN
         self._triage_reasons: list[str] = []
         self._red_flag_triggered: bool = False
@@ -56,29 +57,28 @@ class CheckInAgent(Agent):
 
     async def on_enter(self) -> None:
         """Called when the agent joins the room/session."""
-        # Access session via self.session (available after super().on_enter())
-        session = self.session
+        # ── 1. Read participant attributes (best-effort) ──────────────────────
+        try:
+            session = self.session
+            remote_participants = session.room_io.room.remote_participants
+            attrs: dict = {}
+            if remote_participants:
+                first = next(iter(remote_participants.values()))
+                attrs = dict(first.attributes) if first.attributes else {}
 
-        # Read participant attributes forwarded by inbound_webhook / outbound_caller
-        participant = session.room.remote_participants
-        attrs: dict = {}
-        if participant:
-            first = next(iter(participant.values()))
-            attrs = dict(first.attributes) if first.attributes else {}
-
-        self._call_id = attrs.get("call_id", self._call_id)
-        self._patient_name = attrs.get("patient_name", "Patient")
-        self._nhs_number = attrs.get("nhs_number", "")
-        self._direction = attrs.get("direction", "inbound")
-        self._phone_number = attrs.get("phone_number", "")
-        self._next_appointment = attrs.get("next_appointment", "not yet scheduled")
-        self._room_name = attrs.get("room_name", getattr(session.room, "name", ""))
+            self._call_id = attrs.get("call_id", self._call_id)
+            self._patient_name = attrs.get("patient_name", "Patient")
+            self._nhs_number = attrs.get("nhs_number", "")
+            self._direction = attrs.get("direction", "inbound")
+            self._phone_number = attrs.get("phone_number", "")
+            self._next_appointment = attrs.get("next_appointment", "not yet scheduled")
+            self._room_name = attrs.get("room_name", session.room_io.room.name)
+        except Exception as exc:
+            logger.warning("Could not read participant attributes: %s", exc)
 
         logger.info(
             "CheckInAgent entering — call_id=%s patient=%s direction=%s",
-            self._call_id,
-            self._patient_name,
-            self._direction,
+            self._call_id, self._patient_name, self._direction,
         )
 
         self._identity_state = IdentityState(
@@ -87,25 +87,47 @@ class CheckInAgent(Agent):
         )
 
         # Set the system prompt dynamically
-        self.instructions = build_system_prompt(
+        prompt = build_system_prompt(
             patient_name=self._patient_name,
             nhs_number=self._nhs_number,
             next_appointment=self._next_appointment,
         )
+        try:
+            await self.update_instructions(prompt)
+            logger.info("System prompt applied — %d chars", len(prompt))
+        except Exception as exc:
+            logger.error("update_instructions failed: %s", exc, exc_info=True)
+            # Fallback: set directly on the agent
+            self._instructions = prompt
 
-        # Open call record in SQLite
-        call = Call(
-            call_id=self._call_id,
-            patient_name=self._patient_name,
-            nhs_number=self._nhs_number,
-            phone_number=self._phone_number,
-            direction=self._direction,
-            status="in_progress",
-            started_at=self._started_at,
-            livekit_room=self._room_name,
-        )
-        async with get_db(settings.sqlite_db_path) as db:
-            await insert_call(db, call)
+        # ── 2. Persist call record (best-effort) ──────────────────────────────
+        try:
+            call = Call(
+                call_id=self._call_id,
+                patient_name=self._patient_name,
+                nhs_number=self._nhs_number,
+                phone_number=self._phone_number,
+                direction=self._direction,
+                status="in_progress",
+                started_at=self._started_at,
+                livekit_room=self._room_name,
+            )
+            async with get_db(settings.sqlite_db_path) as db:
+                await insert_call(db, call)
+        except Exception as exc:
+            logger.warning("DB insert skipped: %s", exc)
+
+        # ── 3. Wait for SIP audio then greet ─────────────────────────────────
+        await asyncio.sleep(2)
+        logger.info("Attempting session.say() greeting — call_id=%s", self._call_id)
+        try:
+            await self.session.say(
+                f"Good day, this is Sarah calling from the NHS post-appointment care line. "
+                f"Could I please speak with {self._patient_name}?"
+            )
+            logger.info("session.say() completed successfully")
+        except Exception as exc:
+            logger.error("session.say() failed: %s", exc, exc_info=True)
 
     async def on_exit(self) -> None:
         """Called when the session ends."""
@@ -156,7 +178,15 @@ class CheckInAgent(Agent):
         new_message: ChatMessage,
     ) -> None:
         """Real-time triage after every patient utterance."""
-        text = new_message.content or ""
+        self._turn_end_time = time.time()
+        content = new_message.content
+        if isinstance(content, list):
+            text = " ".join(
+                p if isinstance(p, str) else getattr(p, "text", "")
+                for p in content
+            )
+        else:
+            text = content or ""
         self._conversation_turns.append(("patient", text))
 
         level, reasons = classify_turn(text)
@@ -192,5 +222,16 @@ class CheckInAgent(Agent):
         new_message: ChatMessage,
     ) -> None:
         """Record agent turns for the full transcript."""
-        text = new_message.content or ""
+        if self._turn_end_time:
+            latency = time.time() - self._turn_end_time
+            logger.info("LATENCY user→agent: %.3fs", latency)
+            self._turn_end_time = 0.0
+        content = new_message.content
+        if isinstance(content, list):
+            text = " ".join(
+                p if isinstance(p, str) else getattr(p, "text", "")
+                for p in content
+            )
+        else:
+            text = content or ""
         self._conversation_turns.append(("agent", text))

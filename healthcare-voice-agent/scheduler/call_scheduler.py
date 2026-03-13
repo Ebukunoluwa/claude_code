@@ -28,6 +28,7 @@ async def _dispatch_due_calls() -> None:
     logger.info("Scheduler: %d call(s) due", len(pending))
 
     for sc in pending:
+        # Step 1: initiate the SIP call
         try:
             call_id = await initiate_outbound_call(
                 phone_number=sc.phone_number,
@@ -35,19 +36,45 @@ async def _dispatch_due_calls() -> None:
                 nhs_number=sc.nhs_number,
                 call_id=None,  # generates a new UUID
             )
-            async with get_db(settings.sqlite_db_path) as db:
-                await mark_scheduled_call_dispatched(db, sc.scheduled_call_id, call_id)
-            logger.info(
-                "Scheduler: dispatched call to %s — call_id=%s",
-                sc.patient_name,
-                call_id,
-            )
         except Exception as exc:
             logger.error(
-                "Scheduler: failed to dispatch call to %s: %s",
+                "Scheduler: failed to initiate call to %s: %s",
                 sc.patient_name,
                 exc,
             )
+            continue  # don't mark dispatched — allow retry on next poll
+
+        logger.info(
+            "Scheduler: SIP call initiated to %s — call_id=%s",
+            sc.patient_name,
+            call_id,
+        )
+
+        # Step 2: mark as dispatched — use status-only fallback to prevent re-dispatch
+        # if the FK constraint fails (call record not yet in DB until agent on_enter runs)
+        try:
+            async with get_db(settings.sqlite_db_path) as db:
+                await mark_scheduled_call_dispatched(db, sc.scheduled_call_id, call_id)
+        except Exception as exc:
+            logger.warning(
+                "Scheduler: could not link call_id to scheduled call (%s) — "
+                "falling back to status-only update to prevent re-dispatch",
+                exc,
+            )
+            try:
+                async with get_db(settings.sqlite_db_path) as db:
+                    await db.execute(
+                        "UPDATE scheduled_calls SET status = 'dispatched'"
+                        " WHERE scheduled_call_id = ?",
+                        (sc.scheduled_call_id,),
+                    )
+                    await db.commit()
+            except Exception as exc2:
+                logger.error(
+                    "Scheduler: critical — could not mark %s as dispatched: %s",
+                    sc.scheduled_call_id,
+                    exc2,
+                )
 
 
 def create_scheduler() -> AsyncIOScheduler:

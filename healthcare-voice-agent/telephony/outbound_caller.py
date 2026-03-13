@@ -33,13 +33,13 @@ async def initiate_outbound_call(
     )
 
     try:
-        await lk_client.sip.create_sip_outbound_trunk_dispatch_rule(
-            lk_api.CreateSIPOutboundTrunkDispatchRuleRequest(
-                trunk_id=OUTBOUND_TRUNK_ID,
+        await lk_client.sip.create_sip_participant(
+            lk_api.CreateSIPParticipantRequest(
+                sip_trunk_id=OUTBOUND_TRUNK_ID,
+                sip_call_to=phone_number,
                 room_name=room_name,
                 participant_identity=f"patient-{call_id}",
                 participant_name=patient_name,
-                participant_metadata="",
                 participant_attributes={
                     "call_id": call_id,
                     "patient_name": patient_name,
@@ -49,7 +49,6 @@ async def initiate_outbound_call(
                     "next_appointment": next_appointment,
                     "room_name": room_name,
                 },
-                phone_number=phone_number,
             )
         )
         logger.info(

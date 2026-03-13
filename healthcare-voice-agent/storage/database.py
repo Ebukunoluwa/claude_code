@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncGenerator
 
@@ -96,6 +97,7 @@ async def init_db(db_path: str) -> None:
     logger.info("Database initialised at %s", db_path)
 
 
+@asynccontextmanager
 async def get_db(db_path: str) -> AsyncGenerator[aiosqlite.Connection, None]:
     """Async context manager yielding a WAL-mode connection."""
     async with aiosqlite.connect(db_path) as db:

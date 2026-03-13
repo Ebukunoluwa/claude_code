@@ -16,6 +16,8 @@ build/
 .venv/
 venv/
 env/
+sizor_ai/
+.claude/
 
 # Data (runtime generated)
 data/

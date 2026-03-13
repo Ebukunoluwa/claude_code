@@ -16,6 +16,7 @@ from livekit.agents import (
     WorkerOptions,
     cli,
 )
+from livekit.agents import llm, stt, tts
 from livekit.plugins import silero
 
 from agent.checkin_agent import CheckInAgent
@@ -23,6 +24,9 @@ from config.settings import settings
 from providers.cartesia_tts import CartesiaTTSProvider
 from providers.deepgram_stt import DeepgramSTTProvider
 from providers.groq_llm import GroqLLMProvider
+from providers.openai_llm import OpenAILLMProvider
+from providers.assemblyai_stt import AssemblyAISTTProvider
+from providers.elevenlabs_tts import ElevenLabsTTSProvider
 
 logger = logging.getLogger(__name__)
 
@@ -38,17 +42,32 @@ async def entrypoint(ctx: JobContext) -> None:
     await ctx.connect()
 
     vad = ctx.proc.userdata.get("vad") or silero.VAD.load()
-    stt = DeepgramSTTProvider().build()
-    tts = CartesiaTTSProvider().build()
-    llm_instance = GroqLLMProvider().build()
+
+    # ── STT: Deepgram → AssemblyAI multilingual fallback ─────────────────────
+    stt_instance = stt.FallbackAdapter([
+        DeepgramSTTProvider().build(),
+        AssemblyAISTTProvider().build(),
+    ])
+
+    # ── TTS: Cartesia → ElevenLabs fallback ──────────────────────────────────
+    tts_instance = tts.FallbackAdapter([
+        CartesiaTTSProvider().build(),
+        ElevenLabsTTSProvider().build(),
+    ])
+
+    # ── LLM: OpenAI gpt-oss-120b → Groq fallback ─────────────────────────────
+    llm_instance = llm.FallbackAdapter([
+        OpenAILLMProvider().build(),
+        GroqLLMProvider().build(),
+    ])
 
     agent = CheckInAgent()
 
     session = AgentSession(
         vad=vad,
-        stt=stt,
+        stt=stt_instance,
         llm=llm_instance,
-        tts=tts,
+        tts=tts_instance,
     )
 
     await session.start(
