@@ -17,6 +17,7 @@ async def initiate_outbound_call(
     nhs_number: str,
     call_id: str | None = None,
     next_appointment: str = "not yet scheduled",
+    patient_id: str = "",
 ) -> str:
     """
     Initiate an outbound SIP call via the LiveKit SIP API.
@@ -44,6 +45,7 @@ async def initiate_outbound_call(
                     "call_id": call_id,
                     "patient_name": patient_name,
                     "nhs_number": nhs_number,
+                    "patient_id": patient_id,
                     "direction": "outbound",
                     "phone_number": phone_number,
                     "next_appointment": next_appointment,

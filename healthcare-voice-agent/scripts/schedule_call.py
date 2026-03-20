@@ -1,33 +1,62 @@
+"""
+CLI script to schedule and immediately dispatch a call via the Sizor backend.
+
+Usage:
+    python scripts/schedule_call.py                    # uses defaults below
+    python scripts/schedule_call.py <nhs_number>
+    python scripts/schedule_call.py <nhs_number> <phone_override>
+
+The patient must already exist in the Sizor dashboard.
+A CallSchedule entry is created in Sizor (scheduled 1 second in the past so it
+fires immediately), then _dispatch_due_calls() picks it up and initiates the
+LiveKit SIP call.
+"""
 import asyncio
 import logging
 import sys
 sys.path.insert(0, ".")
+
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
-import time
-from storage.database import init_db, get_db
-from storage.models import ScheduledCall
-from storage.repositories import insert_scheduled_call
+from datetime import datetime, timezone, timedelta
+from sizor_ai.client import get_patient_by_nhs, create_schedule
 from scheduler.call_scheduler import _dispatch_due_calls
-from config.settings import settings
-import uuid
+
+# ── Defaults (override via CLI args or edit here) ────────────────────────────
+DEFAULT_NHS_NUMBER = "165701"
+# ─────────────────────────────────────────────────────────────────────────────
+
 
 async def main():
-    await init_db(settings.sqlite_db_path)
+    nhs_number = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_NHS_NUMBER
 
-    sc = ScheduledCall(
-        scheduled_call_id=str(uuid.uuid4()),
-        patient_name="Timi",
-        nhs_number="165701",
-        phone_number="+447888629971",
-        scheduled_at=time.time() - 1,  # 1 second in the past = due immediately
+    # 1. Look up patient in Sizor
+    print(f"Looking up patient NHS={nhs_number} in Sizor...")
+    patient = await get_patient_by_nhs(nhs_number)
+    if not patient:
+        print(f"ERROR: Patient with NHS number {nhs_number!r} not found in Sizor.")
+        print("Register the patient in the Sizor dashboard first.")
+        sys.exit(1)
+
+    print(f"Found: {patient['full_name']} (patient_id={patient['patient_id']})")
+
+    # 2. Create a schedule entry in Sizor — 1 second in the past = due immediately
+    scheduled_for = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
+    print(f"Creating schedule in Sizor (scheduled_for={scheduled_for})...")
+    result = await create_schedule(
+        patient_id=patient["patient_id"],
+        scheduled_for=scheduled_for,
     )
+    if not result:
+        print("ERROR: Failed to create schedule in Sizor — check SIZOR_API_URL and SIZOR_INTERNAL_KEY.")
+        sys.exit(1)
 
-    async with get_db(settings.sqlite_db_path) as db:
-        await insert_scheduled_call(db, sc)
+    print(f"Schedule created — schedule_id={result.get('schedule_id')}")
 
-    print("Call scheduled. Dispatching now...")
+    # 3. Dispatch immediately
+    print("Dispatching now...")
     await _dispatch_due_calls()
     print("Done — check your phone.")
+
 
 asyncio.run(main())

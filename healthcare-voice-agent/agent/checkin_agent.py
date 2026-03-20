@@ -14,6 +14,7 @@ from agent.system_prompt import build_system_prompt
 from agent.triage import RED_ESCALATION_PHRASE, TriageLevel, classify_turn
 from config.settings import settings
 from processing.pipeline import run_post_call_pipeline
+from sizor_ai.client import ingest_call as sizor_ingest
 from storage.database import get_db
 from storage.models import Call
 from storage.repositories import insert_call, update_call_status
@@ -37,6 +38,7 @@ class CheckInAgent(Agent):
         self._call_id: str = str(uuid.uuid4())
         self._patient_name: str = "Unknown Patient"
         self._nhs_number: str = ""
+        self._patient_id: str = ""  # sizor patient_id if available
         self._direction: str = "inbound"
         self._phone_number: str = ""
         self._next_appointment: str = "not yet scheduled"
@@ -69,6 +71,7 @@ class CheckInAgent(Agent):
             self._call_id = attrs.get("call_id", self._call_id)
             self._patient_name = attrs.get("patient_name", "Patient")
             self._nhs_number = attrs.get("nhs_number", "")
+            self._patient_id = attrs.get("patient_id", "")
             self._direction = attrs.get("direction", "inbound")
             self._phone_number = attrs.get("phone_number", "")
             self._next_appointment = attrs.get("next_appointment", "not yet scheduled")
@@ -165,6 +168,18 @@ class CheckInAgent(Agent):
                 turn_count=len(self._conversation_turns),
                 realtime_triage_level=self._triage_level.value,
                 realtime_triage_reasons=self._triage_reasons,
+            )
+        )
+
+        # Push to Sizor AI platform for full clinical pipeline + dashboard
+        asyncio.create_task(
+            sizor_ingest(
+                call_id=self._call_id,
+                nhs_number=self._nhs_number,
+                transcript=transcript_text,
+                direction=self._direction,
+                duration_seconds=duration,
+                patient_id=self._patient_id or None,
             )
         )
 

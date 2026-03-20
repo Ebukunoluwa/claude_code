@@ -62,6 +62,10 @@ class Settings(BaseSettings):
     # ── Scheduler ────────────────────────────────────────────────────────────
     scheduler_poll_interval_seconds: int = Field(default=60)
 
+    # ── Sizor AI Platform ─────────────────────────────────────────────────────
+    sizor_api_url: str = Field(default="", description="e.g. http://localhost:8000")
+    sizor_internal_key: str = Field(default="", description="Must match INTERNAL_API_KEY in sizor backend")
+
 
 # Singleton — import this everywhere
 settings = Settings()
