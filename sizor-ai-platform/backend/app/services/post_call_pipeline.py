@@ -152,20 +152,36 @@ TREND_SNAPSHOT: JSON object — one key per domain — value: object with direct
     active_concerns = []
     trend_snapshot = {}
 
-    ac = re.search(r'ACTIVE_CONCERNS:\s*(\[.*?\])', resp, re.DOTALL)
+    # Extract JSON from either plain or backtick-fenced blocks, e.g.:
+    #   ACTIVE_CONCERNS: [...]
+    #   TREND_SNAPSHOT: ```json\n{...}\n```
+    _JSON_BLOCK = r'(?:```(?:json)?\s*)?([\[{].*?[\]}])\s*(?:```)?'
+
+    ac = re.search(r'ACTIVE_CONCERNS:\s*' + _JSON_BLOCK, resp, re.DOTALL)
     if ac:
         try:
             active_concerns = json.loads(ac.group(1))
-            narrative = resp[:ac.start()].strip()
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, ValueError):
             pass
+        # Strip everything from this sentinel onwards
+        narrative = resp[:ac.start()].strip()
 
-    ts = re.search(r'TREND_SNAPSHOT:\s*(\{.*?\})', resp, re.DOTALL)
+    ts = re.search(r'TREND_SNAPSHOT:\s*' + _JSON_BLOCK, resp, re.DOTALL)
     if ts:
         try:
             trend_snapshot = json.loads(ts.group(1))
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, ValueError):
             pass
+        # Also strip if it appeared before ACTIVE_CONCERNS (shouldn't, but defensive)
+        if ts.start() < len(narrative):
+            narrative = narrative[:ts.start()].strip()
+
+    # Final safety strip — remove any remaining sentinel lines and fenced blocks
+    narrative = re.sub(
+        r'\n?(?:ACTIVE_CONCERNS|TREND_SNAPSHOT):.*',
+        '', narrative, flags=re.DOTALL,
+    ).strip()
+    narrative = re.sub(r'```(?:json)?\s*[\[{].*?[\]}]\s*```', '', narrative, flags=re.DOTALL).strip()
 
     return {
         "narrative_text": narrative,

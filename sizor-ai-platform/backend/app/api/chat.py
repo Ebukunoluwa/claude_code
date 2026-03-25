@@ -21,7 +21,7 @@ import os
 from ..database import get_db
 from ..models import (
     Patient, PatientMedicalProfile, LongitudinalSummary,
-    CallRecord, ClinicalExtraction, SOAPNote, UrgencyFlag,
+    CallRecord, ClinicalExtraction, SOAPNote, UrgencyFlag, ProbeCall,
 )
 from .auth import get_current_clinician
 from ..config import settings
@@ -182,6 +182,46 @@ async def _build_context(patient_id: str, db: AsyncSession) -> str:
                 f"  A: {soap.assessment}",
                 f"  P: {soap.plan}",
             ]
+
+    # Probe calls — clinician-initiated targeted checks
+    probe_calls_res = await db.execute(
+        select(ProbeCall)
+        .where(ProbeCall.patient_id == pid)
+        .order_by(ProbeCall.created_at.desc())
+        .limit(5)
+    )
+    probe_calls = probe_calls_res.scalars().all()
+
+    if probe_calls:
+        lines += ["", "── Probe Calls (clinician-initiated, latest first) ──"]
+        for pc in probe_calls:
+            when = pc.scheduled_time.strftime("%d %b %Y %H:%M")
+            lines.append(f"  [{pc.status.upper()}] {when} — Clinician note: {pc.note}")
+            if pc.call_prompt and pc.prompt_source == "llm":
+                lines.append(f"    AI call prompt: {pc.call_prompt[:300]}{'…' if len(pc.call_prompt) > 300 else ''}")
+
+            # Include SOAP note from the probe call outcome if available
+            probe_soap = None
+            if pc.soap_note_id:
+                probe_soap = (await db.execute(
+                    select(SOAPNote).where(SOAPNote.soap_id == pc.soap_note_id)
+                )).scalar_one_or_none()
+            elif pc.call_sid:
+                call_for_sid = (await db.execute(
+                    select(CallRecord).where(CallRecord.call_sid == pc.call_sid)
+                )).scalar_one_or_none()
+                if call_for_sid:
+                    probe_soap = (await db.execute(
+                        select(SOAPNote).where(SOAPNote.call_id == call_for_sid.call_id)
+                    )).scalar_one_or_none()
+
+            if probe_soap:
+                lines += [
+                    f"    Probe SOAP outcome —",
+                    f"      S: {probe_soap.subjective}",
+                    f"      A: {probe_soap.assessment}",
+                    f"      P: {probe_soap.plan}",
+                ]
 
     return "\n".join(lines)
 

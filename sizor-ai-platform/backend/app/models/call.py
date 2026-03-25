@@ -21,6 +21,7 @@ class CallRecord(Base):
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     transcript_raw: Mapped[str | None] = mapped_column(Text, nullable=True)
     probe_instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
+    call_sid: Mapped[str | None] = mapped_column(String(64), nullable=True)  # Twilio CallSid
     outcome_call_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("call_records.call_id"), nullable=True)
 
     patient = relationship("Patient", back_populates="calls")

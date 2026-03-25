@@ -1,25 +1,26 @@
 from __future__ import annotations
 
 """
-Agent worker entrypoint.
+Unified agent worker — handles inbound, outbound, and probe calls.
+
+Room prefix → agent:
+  inbound-  → SizorInboundAgent  (patient called in)
+  probe-    → CheckInAgent       (clinician-triggered probe)
+  call-     → CheckInAgent       (scheduled post-appointment)
 
 Run:
-    python -m agent.worker start     # production (connects to LiveKit cloud)
-    python -m agent.worker dev       # local microphone / playground
+    python -m agent.worker start
 """
 
 import logging
 
-from livekit.agents import (
-    AgentSession,
-    JobContext,
-    WorkerOptions,
-    cli,
-)
+from livekit.agents import AgentSession, JobContext, WorkerOptions, cli
 from livekit.agents import llm, stt, tts
-from livekit.plugins import silero
+from livekit.plugins import cartesia, deepgram, silero
+from livekit.plugins import openai as lk_openai
 
 from agent.checkin_agent import CheckInAgent
+from agent.sizor_inbound_agent import SizorInboundAgent
 from config.settings import settings
 from providers.cartesia_tts import CartesiaTTSProvider
 from providers.deepgram_stt import DeepgramSTTProvider
@@ -32,36 +33,59 @@ logger = logging.getLogger(__name__)
 
 
 def prewarm(proc) -> None:
-    """Pre-load the VAD model once before handling any call."""
-    proc.userdata["vad"] = silero.VAD.load()
+    proc.userdata["vad"] = silero.VAD.load(
+        min_silence_duration=1.2,
+        min_speech_duration=0.1,
+        padding_duration=0.4,
+    )
     logger.info("Silero VAD pre-warmed")
 
 
 async def entrypoint(ctx: JobContext) -> None:
-    """Invoked by the LiveKit worker for each new room/job."""
     await ctx.connect()
 
-    vad = ctx.proc.userdata.get("vad") or silero.VAD.load()
+    room_name = ctx.room.name
+    vad = ctx.proc.userdata.get("vad") or silero.VAD.load(min_silence_duration=0.9)
 
-    # ── STT: Deepgram → AssemblyAI multilingual fallback ─────────────────────
-    stt_instance = stt.FallbackAdapter([
-        DeepgramSTTProvider().build(),
-        AssemblyAISTTProvider().build(),
-    ])
+    if room_name.startswith("inbound-"):
+        # ── Patient called in → inbound agent ────────────────────────────────
+        logger.info("Inbound call — room=%s", room_name)
 
-    # ── TTS: Cartesia → ElevenLabs fallback ──────────────────────────────────
-    tts_instance = tts.FallbackAdapter([
-        CartesiaTTSProvider().build(),
-        ElevenLabsTTSProvider().build(),
-    ])
+        stt_instance = deepgram.STT(
+            api_key=settings.deepgram_api_key,
+            model="nova-3-general",
+            language="en-GB",
+        )
+        tts_instance = cartesia.TTS(
+            api_key=settings.cartesia_api_key,
+            model="sonic-3",
+            voice=settings.cartesia_voice_id,
+            language="en",
+        )
+        llm_instance = lk_openai.LLM(
+            api_key=settings.openai_api_key,
+            model="gpt-4o-mini",
+        )
+        agent = SizorInboundAgent()
 
-    # ── LLM: OpenAI gpt-oss-120b → Groq fallback ─────────────────────────────
-    llm_instance = llm.FallbackAdapter([
-        OpenAILLMProvider().build(),
-        GroqLLMProvider().build(),
-    ])
+    else:
+        # ── Outbound or probe call → checkin agent ────────────────────────────
+        call_type = "probe" if room_name.startswith("probe-") else "outbound"
+        logger.info("%s call — room=%s", call_type, room_name)
 
-    agent = CheckInAgent()
+        stt_instance = stt.FallbackAdapter([
+            DeepgramSTTProvider().build(),
+            AssemblyAISTTProvider().build(),
+        ])
+        tts_instance = tts.FallbackAdapter([
+            CartesiaTTSProvider().build(),
+            ElevenLabsTTSProvider().build(),
+        ])
+        llm_instance = llm.FallbackAdapter([
+            OpenAILLMProvider().build(),
+            GroqLLMProvider().build(),
+        ])
+        agent = CheckInAgent()
 
     session = AgentSession(
         vad=vad,
@@ -70,12 +94,8 @@ async def entrypoint(ctx: JobContext) -> None:
         tts=tts_instance,
     )
 
-    await session.start(
-        agent=agent,
-        room=ctx.room,
-    )
-
-    logger.info("AgentSession started — room=%s", ctx.room.name)
+    await session.start(agent=agent, room=ctx.room)
+    logger.info("AgentSession started — room=%s", room_name)
 
 
 if __name__ == "__main__":

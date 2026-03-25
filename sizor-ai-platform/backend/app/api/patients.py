@@ -79,14 +79,48 @@ async def create_patient(
     db: AsyncSession = Depends(get_db),
     clinician=Depends(get_current_clinician),
 ):
+    from datetime import date as date_type
+    import uuid as uuid_mod
+
     profile_data = data.pop("medical_profile", None)
-    patient = Patient(**data)
-    db.add(patient)
-    await db.flush()
-    if profile_data:
-        profile = PatientMedicalProfile(patient_id=patient.patient_id, **profile_data)
-        db.add(profile)
-    await db.commit()
+
+    # Coerce date strings → date objects
+    for field in ("date_of_birth", "discharge_date", "admission_date"):
+        val = data.get(field)
+        if val and isinstance(val, str):
+            try:
+                data[field] = date_type.fromisoformat(val)
+            except ValueError:
+                data.pop(field, None)
+
+    # Coerce hospital_id / ward_id strings → UUID objects
+    for field in ("hospital_id", "ward_id", "assigned_clinician_id"):
+        val = data.get(field)
+        if val and isinstance(val, str):
+            try:
+                data[field] = uuid_mod.UUID(val)
+            except ValueError:
+                data.pop(field, None)
+
+    # Only pass fields that exist on the model
+    allowed = {c.key for c in Patient.__table__.columns}
+    data = {k: v for k, v in data.items() if k in allowed}
+
+    if not data.get("hospital_id"):
+        data["hospital_id"] = clinician.hospital_id
+
+    try:
+        patient = Patient(**data)
+        db.add(patient)
+        await db.flush()
+        if profile_data:
+            profile = PatientMedicalProfile(patient_id=patient.patient_id, **profile_data)
+            db.add(profile)
+        await db.commit()
+    except Exception as exc:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc))
+
     return {"patient_id": str(patient.patient_id)}
 
 
@@ -346,6 +380,8 @@ async def add_schedule(
     db: AsyncSession = Depends(get_db),
     clinician=Depends(get_current_clinician),
 ):
+    if "scheduled_for" in data and isinstance(data["scheduled_for"], str):
+        data["scheduled_for"] = datetime.fromisoformat(data["scheduled_for"])
     s = CallSchedule(patient_id=uuid.UUID(patient_id), **data)
     db.add(s)
     await db.commit()

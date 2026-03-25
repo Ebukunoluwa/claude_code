@@ -27,6 +27,11 @@ body {
   flex-direction: column;
 }
 
+/* Form input base */
+.input {
+  @apply w-full px-3 py-2 text-sm border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-nhs-blue/20 focus:border-nhs-blue transition;
+}
+
 /* Card hover lift */
 .card-hover {
   transition: box-shadow 0.2s ease, transform 0.2s ease;

@@ -5,6 +5,7 @@ import { getMe } from "../api/auth";
 import UrgencyBadge from "../components/UrgencyBadge";
 import FTPBadge from "../components/FTPBadge";
 import Layout from "../components/Layout";
+import AddPatientModal from "../components/AddPatientModal";
 import { timeAgo, formatDuration } from "../utils/timezone";
 
 function getInitials(name) {
@@ -92,12 +93,14 @@ export default function DashboardPage() {
   const [loading, setLoading]   = useState(true);
   const [activeFilter, setActiveFilter] = useState("all");
   const [search, setSearch]     = useState("");
+  const [showAddPatient, setShowAddPatient] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
     Promise.all([getDashboard(), getMe()])
       .then(([dash, me]) => { setData(dash); setClinician(me); })
       .finally(() => setLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const filteredWorklist = useMemo(() => {
@@ -153,9 +156,20 @@ export default function DashboardPage() {
             <h1 className="text-xl font-bold text-gray-900">Clinical Dashboard</h1>
             <p className="text-sm text-gray-500 mt-0.5">{today}</p>
           </div>
-          <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-full px-3 py-1.5">
-            <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-            <span className="text-xs font-medium text-green-700">System live</span>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setShowAddPatient(true)}
+              className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold bg-nhs-blue text-white rounded-xl hover:bg-blue-700 transition shadow-sm"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+              </svg>
+              Add Patient
+            </button>
+            <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-full px-3 py-1.5">
+              <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+              <span className="text-xs font-medium text-green-700">System live</span>
+            </div>
           </div>
         </div>
 
@@ -351,6 +365,18 @@ export default function DashboardPage() {
           )}
         </div>
       </div>
+
+      {showAddPatient && clinician && (
+        <AddPatientModal
+          clinician={clinician}
+          onClose={() => setShowAddPatient(false)}
+          onAdded={() => {
+            // Refresh dashboard after adding
+            Promise.all([getDashboard(), getMe()])
+              .then(([dash, me]) => { setData(dash); setClinician(me); });
+          }}
+        />
+      )}
     </Layout>
   );
 }

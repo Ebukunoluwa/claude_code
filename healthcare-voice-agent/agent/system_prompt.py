@@ -1,10 +1,70 @@
 from __future__ import annotations
 
 
+def _format_call_context(ctx: dict) -> str:
+    """
+    Convert the call-context dict from the backend into a prompt-ready text block.
+    """
+    lines = ["════════════════════════════════════════════════════════════════",
+             "PREVIOUS CALL HISTORY — use this to follow up on unresolved concerns",
+             "════════════════════════════════════════════════════════════════"]
+
+    summaries = ctx.get("call_summaries", [])
+    for i, s in enumerate(summaries, 1):
+        day_label = f"Day {s['day']}" if s.get("day") is not None else f"Call {i}"
+        lines.append(f"\n[{day_label}]")
+        if s.get("what_patient_reported"):
+            lines.append(f"  Patient reported: {s['what_patient_reported']}")
+        if s.get("assessment"):
+            lines.append(f"  Assessment: {s['assessment']}")
+        if s.get("plan"):
+            lines.append(f"  Plan: {s['plan']}")
+        scores = s.get("scores", {})
+        if scores:
+            score_parts = []
+            if "pain" in scores:
+                score_parts.append(f"pain={scores['pain']}/10")
+            if "mood" in scores:
+                score_parts.append(f"mood={scores['mood']}/10")
+            if "mobility" in scores:
+                score_parts.append(f"mobility={scores['mobility']}/10")
+            if "medication_adherent" in scores:
+                score_parts.append(f"medication={'adherent' if scores['medication_adherent'] else 'NON-ADHERENT'}")
+            if score_parts:
+                lines.append(f"  Scores: {', '.join(score_parts)}")
+        if scores.get("concerns_noted"):
+            lines.append(f"  Concerns noted: {scores['concerns_noted']}")
+        if scores.get("red_flags"):
+            lines.append(f"  Red flags: {scores['red_flags']}")
+
+    open_flags = ctx.get("open_flags", [])
+    if open_flags:
+        lines.append("\nOPEN CLINICAL FLAGS (unresolved — must follow up):")
+        for f in open_flags:
+            lines.append(f"  ⚠ [{f['severity'].upper()}] {f['type'].replace('_', ' ')}: {f['description']}")
+
+    active_concerns = ctx.get("active_concerns", [])
+    if active_concerns:
+        lines.append("\nACTIVE CONCERNS FROM LONGITUDINAL RECORD:")
+        for c in active_concerns:
+            lines.append(f"  • {c}")
+
+    lines.append("""
+CONTINUITY INSTRUCTIONS:
+- If the patient mentions anything related to the concerns above, acknowledge it and probe further.
+- If an open flag exists, ask specifically about that symptom or issue during the call.
+- Example: "Last time we spoke you mentioned some pain around a 7. How has that been since?"
+- Do not read out clinical jargon — frame questions naturally and conversationally.
+- Only bring up previous concerns if they are clinically relevant; do not make the patient feel surveilled.
+""")
+    return "\n".join(lines)
+
+
 def build_system_prompt(
     patient_name: str,
     nhs_number: str,
     next_appointment: str = "not yet scheduled",
+    previous_context: dict | None = None,
 ) -> str:
     """
     Build the NHS/NICE-aligned system prompt for the check-in agent.
@@ -114,4 +174,5 @@ GENERAL GUIDANCE
 - If the patient is distressed, acknowledge their feelings before moving on.
 - Do not skip phases. If the patient is evasive, gently probe once then move on.
 - Maintain GDPR compliance: do not repeat NHS numbers aloud more than once.
-"""
+
+{_format_call_context(previous_context) if previous_context else ""}"""

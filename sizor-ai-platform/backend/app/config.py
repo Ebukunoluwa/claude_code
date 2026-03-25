@@ -20,8 +20,20 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     groq_api_key: str = ""
 
-    # Twilio — used by the inbound call webhook
+    # Twilio — used by the inbound call webhook and probe call outbound dialling
     twilio_auth_token: str = ""
+    twilio_account_sid: str = ""
+    twilio_phone_number: str = ""   # E.164 format, e.g. +441234567890
+
+    # Public URL of this backend (used to build TwiML callback URLs)
+    backend_public_url: str = "http://localhost:8000"
+
+    # LiveKit — used to initiate probe calls via SIP (same credentials as the voice agent)
+    livekit_url: str = ""
+    livekit_api_key: str = ""
+    livekit_api_secret: str = ""
+    twilio_sip_trunk_id: str = ""       # LiveKit SIP trunk resource ID (ST_xxx)
+    livekit_sip_inbound_domain: str = ""  # e.g. xxxxx.pstn.livekit.cloud
 
 
 settings = Settings()

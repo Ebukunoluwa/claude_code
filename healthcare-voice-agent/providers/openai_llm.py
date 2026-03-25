@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 class OpenAILLMProvider(BaseLLMProvider):
-    """OpenAI gpt-oss-120b — primary LLM."""
+    """OpenAI gpt-4o-mini — primary LLM."""
 
     def __init__(self) -> None:
         self._async_client = AsyncOpenAI(api_key=settings.openai_api_key)
@@ -21,7 +21,7 @@ class OpenAILLMProvider(BaseLLMProvider):
     def build(self) -> LLM:
         return lk_openai.LLM(
             api_key=settings.openai_api_key,
-            model="gpt-oss-120b",
+            model="gpt-4o-mini",
         )
 
     async def complete(self, prompt: str, system: str = "") -> str:
@@ -31,7 +31,7 @@ class OpenAILLMProvider(BaseLLMProvider):
         messages.append({"role": "user", "content": prompt})
 
         response = await self._async_client.chat.completions.create(
-            model="gpt-oss-120b",
+            model="gpt-4o-mini",
             messages=messages,
             temperature=0.2,
         )

@@ -58,6 +58,8 @@ async def ingest_call_from_voice_agent(
     if existing.scalar_one_or_none():
         return {"call_id": call_id, "patient_id": str(patient.patient_id), "status": "already_exists"}
 
+    probe_call_id = data.get("probe_call_id")
+
     call = CallRecord(
         call_id=uuid.UUID(call_id),
         patient_id=patient.patient_id,
@@ -68,12 +70,18 @@ async def ingest_call_from_voice_agent(
         duration_seconds=data.get("duration_seconds"),
         started_at=datetime.now(timezone.utc),
         transcript_raw=data.get("transcript", ""),
+        call_sid=data.get("call_sid"),
+        probe_instructions=data.get("probe_instructions"),
     )
     db.add(call)
     await db.commit()
 
     # Trigger full pipeline (SOAP, extraction, FTP, flags, longitudinal summary)
     celery_app.send_task("process_call", args=[call_id])
+
+    # If this is a probe call, update its status and link SOAP note after pipeline
+    if probe_call_id:
+        celery_app.send_task("link_probe_call", args=[probe_call_id, call_id], countdown=30)
 
     return {"call_id": call_id, "patient_id": str(patient.patient_id), "status": "queued"}
 

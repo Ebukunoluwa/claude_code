@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from ..database import get_db
-from ..models import CallSchedule, Patient
+from ..models import CallSchedule, Patient, CallRecord, SOAPNote, ClinicalExtraction, UrgencyFlag, LongitudinalSummary
 from ..config import settings
 
 router = APIRouter(prefix="/internal", tags=["internal"])
@@ -137,4 +137,113 @@ async def get_patient_by_nhs_internal(
         "condition": patient.condition,
         "discharge_date": str(patient.discharge_date) if patient.discharge_date else None,
         "day_in_recovery": day,
+    }
+
+
+@router.get("/patients/by-nhs/{nhs_number}/call-context")
+async def get_call_context(
+    nhs_number: str,
+    db: AsyncSession = Depends(get_db),
+    x_internal_key: str = Header(default=""),
+):
+    """
+    Return previous call context for the voice agent to inject into its system prompt.
+    Includes: last 3 SOAP notes, open urgency flags, active concerns, recent extraction scores.
+    """
+    if x_internal_key != settings.internal_api_key:
+        raise HTTPException(status_code=401, detail="Invalid internal key")
+
+    patient_result = await db.execute(select(Patient).where(Patient.nhs_number == nhs_number))
+    patient = patient_result.scalar_one_or_none()
+    if not patient:
+        return {"has_history": False}
+
+    # Last 3 completed calls
+    calls_result = await db.execute(
+        select(CallRecord)
+        .where(CallRecord.patient_id == patient.patient_id, CallRecord.status == "completed")
+        .order_by(CallRecord.started_at.desc())
+        .limit(3)
+    )
+    recent_calls = calls_result.scalars().all()
+
+    if not recent_calls:
+        return {"has_history": False}
+
+    call_summaries = []
+    for call in recent_calls:
+        soap_result = await db.execute(
+            select(SOAPNote).where(SOAPNote.call_id == call.call_id)
+        )
+        soap = soap_result.scalar_one_or_none()
+
+        ext_result = await db.execute(
+            select(ClinicalExtraction).where(ClinicalExtraction.call_id == call.call_id)
+        )
+        ext = ext_result.scalar_one_or_none()
+
+        summary = {}
+        if call.day_in_recovery is not None:
+            summary["day"] = call.day_in_recovery
+        if soap:
+            summary["assessment"] = soap.assessment
+            summary["plan"] = soap.plan
+            if soap.subjective:
+                summary["what_patient_reported"] = soap.subjective
+        if ext:
+            scores = {}
+            if ext.pain_score is not None:
+                scores["pain"] = ext.pain_score
+            if ext.mood_score is not None:
+                scores["mood"] = ext.mood_score
+            if ext.mobility_score is not None:
+                scores["mobility"] = ext.mobility_score
+            if ext.medication_adherence is not None:
+                scores["medication_adherent"] = ext.medication_adherence
+            if ext.red_flags:
+                scores["red_flags"] = ext.red_flags
+            if ext.concerns:
+                scores["concerns_noted"] = ext.concerns
+            if scores:
+                summary["scores"] = scores
+        if summary:
+            call_summaries.append(summary)
+
+    # Open urgency flags
+    flags_result = await db.execute(
+        select(UrgencyFlag)
+        .where(
+            UrgencyFlag.patient_id == patient.patient_id,
+            UrgencyFlag.status.in_(["open", "reviewing"]),
+        )
+        .order_by(UrgencyFlag.raised_at.desc())
+        .limit(5)
+    )
+    open_flags = [
+        {"severity": f.severity, "type": f.flag_type, "description": f.trigger_description}
+        for f in flags_result.scalars().all()
+    ]
+
+    # Active concerns from longitudinal summary
+    summary_result = await db.execute(
+        select(LongitudinalSummary)
+        .where(
+            LongitudinalSummary.patient_id == patient.patient_id,
+            LongitudinalSummary.is_current == True,
+        )
+    )
+    long_summary = summary_result.scalar_one_or_none()
+    active_concerns = []
+    if long_summary and long_summary.active_concerns_snapshot:
+        for c in long_summary.active_concerns_snapshot:
+            label = c.get("concern") if isinstance(c, dict) else c
+            if label:
+                active_concerns.append(str(label))
+
+    return {
+        "has_history": True,
+        "patient_condition": patient.condition,
+        "call_summaries": call_summaries,
+        "open_flags": open_flags,
+        "active_concerns": active_concerns,
     }

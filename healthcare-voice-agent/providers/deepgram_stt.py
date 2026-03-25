@@ -13,6 +13,6 @@ class DeepgramSTTProvider(BaseSTTProvider):
     def build(self) -> STT:
         return deepgram.STT(
             api_key=settings.deepgram_api_key,
-            model="nova-2-general",
+            model="nova-3-general",
             language="en-GB",
         )

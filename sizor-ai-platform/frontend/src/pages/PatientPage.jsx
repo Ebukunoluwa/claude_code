@@ -6,7 +6,7 @@ import {
 } from "recharts";
 import {
   getPatient, getPatientCalls, getPatientTrends,
-  getPatientDecisions, actionNote, actionProbe,
+  getPatientDecisions, actionNote,
   actionEscalate, resolveFlag,
 } from "../api/patients";
 import { getCall, reviewCall } from "../api/calls";
@@ -16,6 +16,7 @@ import UrgencyBadge from "../components/UrgencyBadge";
 import FTPBadge from "../components/FTPBadge";
 import Layout from "../components/Layout";
 import PatientChat from "../components/PatientChat";
+import ProbeCallPanel from "../components/ProbeCallPanel";
 import { formatDateTime, formatDate, formatDuration } from "../utils/timezone";
 import { NHS_BLUE, NHS_GREEN, NHS_AMBER, NHS_RED } from "../utils/colors";
 
@@ -34,6 +35,16 @@ const DOMAIN_ICONS = {
   appetite: "🍽",
   mood: "😊",
 };
+
+function cleanNarrative(text) {
+  if (!text) return "";
+  // Strip everything from the first sentinel keyword onwards (ACTIVE_CONCERNS or TREND_SNAPSHOT)
+  // Also strip any stray backtick-fenced JSON blocks that leaked in
+  return text
+    .replace(/\n?\s*(?:ACTIVE_CONCERNS|TREND_SNAPSHOT)\s*:[\s\S]*/i, "")
+    .replace(/```[\s\S]*?```/g, "")
+    .trim();
+}
 
 function ScoreRing({ value, label, color }) {
   const max = 10;
@@ -96,7 +107,6 @@ export default function PatientPage() {
   const [showTranscript, setShowTranscript] = useState(false);
 
   const [noteText, setNoteText] = useState("");
-  const [probeInstructions, setProbeInstructions] = useState("");
   const [escalateNote, setEscalateNote] = useState("");
   const [decisionQuestion, setDecisionQuestion] = useState("");
   const [decisionResponse, setDecisionResponse] = useState("");
@@ -141,19 +151,6 @@ export default function PatientPage() {
     setActionLoading(true);
     await actionNote(patientId, { notes_text: noteText, call_id: selectedCall });
     setNoteText(""); setActiveAction(null); setActionMsg("Note saved.");
-    await loadPatient(); setActionLoading(false);
-  }
-
-  async function handleProbe() {
-    setActionLoading(true);
-    const tomorrow = new Date(Date.now() + 86400000).toISOString();
-    await actionProbe(patientId, {
-      probe_instructions: probeInstructions,
-      scheduled_for: tomorrow,
-      module: patient?.program_module || "post_discharge",
-    });
-    setProbeInstructions(""); setActiveAction(null);
-    setActionMsg("Probe call scheduled for tomorrow.");
     await loadPatient(); setActionLoading(false);
   }
 
@@ -301,17 +298,27 @@ export default function PatientPage() {
                     </svg>
                   </div>
                   <div className="flex-1">
-                    <p className="text-sm text-gray-700 leading-relaxed">{patient.longitudinal_summary.narrative_text}</p>
+                    <p className="text-sm text-gray-700 leading-relaxed">{cleanNarrative(patient.longitudinal_summary.narrative_text)}</p>
                     <div className="text-[10px] text-gray-400 mt-2">
                       v{patient.longitudinal_summary.version_number} · {formatDateTime(patient.longitudinal_summary.generated_at)}
                     </div>
                     {patient.longitudinal_summary.active_concerns_snapshot?.length > 0 && (
                       <div className="mt-3 flex flex-wrap gap-1.5">
-                        {patient.longitudinal_summary.active_concerns_snapshot.map((c, i) => (
-                          <span key={i} className="bg-red-50 text-red-700 text-xs px-2.5 py-1 rounded-full border border-red-100 font-medium">
-                            ⚠ {c}
-                          </span>
-                        ))}
+                        {patient.longitudinal_summary.active_concerns_snapshot.map((c, i) => {
+                          // c may be a string or an object {concern, raised_on_day, severity, current_status}
+                          const label = typeof c === "object" && c !== null ? c.concern : c;
+                          const sev = typeof c === "object" && c !== null ? c.severity : null;
+                          const cls = sev === "high" || sev === "red"
+                            ? "bg-red-50 text-red-700 border-red-200"
+                            : sev === "medium" || sev === "amber"
+                            ? "bg-amber-50 text-amber-700 border-amber-200"
+                            : "bg-red-50 text-red-700 border-red-100";
+                          return (
+                            <span key={i} className={`text-xs px-2.5 py-1 rounded-full border font-medium ${cls}`}>
+                              ⚠ {label}
+                            </span>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
@@ -325,13 +332,22 @@ export default function PatientPage() {
                 {patient.longitudinal_summary?.trend_snapshot && (
                   <div className="flex flex-wrap gap-2 mb-4">
                     {Object.entries(patient.longitudinal_summary.trend_snapshot).map(([k, v]) => {
-                      const arrow = v === "improving" ? "↑" : v === "worsening" || v === "acute_deterioration" ? "↓" : "→";
-                      const cls = v === "improving" ? "text-green-700 bg-green-50 border-green-100" :
-                        (v === "worsening" || v === "acute_deterioration") ? "text-red-700 bg-red-50 border-red-100" :
-                        "text-gray-600 bg-gray-50 border-gray-100";
+                      // v may be a string ("improving") or an object ({direction, concerning})
+                      const dir = typeof v === "object" && v !== null ? v.direction : v;
+                      const concerning = typeof v === "object" && v !== null ? v.concerning : false;
+                      const isGood = dir === "improving";
+                      const isBad = dir === "deteriorating" || dir === "worsening" || dir === "acute_deterioration";
+                      const arrow = isGood ? "↑" : isBad ? "↓" : "→";
+                      const cls = concerning
+                        ? "text-red-700 bg-red-50 border-red-200"
+                        : isGood
+                        ? "text-green-700 bg-green-50 border-green-100"
+                        : isBad
+                        ? "text-red-700 bg-red-50 border-red-100"
+                        : "text-gray-600 bg-gray-50 border-gray-100";
                       return (
                         <span key={k} className={`text-xs font-semibold px-2.5 py-1 rounded-full border capitalize ${cls}`}>
-                          {arrow} {k}
+                          {arrow} {k.replace(/_/g, " ")}
                         </span>
                       );
                     })}
@@ -528,9 +544,7 @@ export default function PatientPage() {
                         {showTranscript ? "Hide" : "View"} Transcript
                       </button>
                       {showTranscript && (
-                        <div className="mt-2 rounded-xl bg-gray-50 border border-gray-100 p-3 text-xs text-gray-600 whitespace-pre-wrap max-h-64 overflow-y-auto leading-relaxed">
-                          {callDetail.transcript_raw}
-                        </div>
+                        <TranscriptBubbles raw={callDetail.transcript_raw} />
                       )}
                     </div>
                   )}
@@ -712,14 +726,18 @@ export default function PatientPage() {
               </Section>
             )}
 
+            {/* Probe Call */}
+            <Section title="Probe Call">
+              <ProbeCallPanel patientId={patientId} />
+            </Section>
+
             {/* Clinician Actions */}
             <Section title="Actions">
               <div className="space-y-3">
                 <div className="flex flex-wrap gap-2">
                   {[
-                    { id: "note", label: "Add Note", icon: "📝", cls: "border-nhs-blue/30 text-nhs-blue bg-nhs-blue/5 hover:bg-nhs-blue/10", activeCls: "bg-nhs-blue text-white border-transparent" },
-                    { id: "probe", label: "Probe Call", icon: "📞", cls: "border-purple-300 text-purple-700 bg-purple-50 hover:bg-purple-100", activeCls: "bg-purple-600 text-white border-transparent" },
-                    { id: "escalate", label: "Escalate", icon: "🚨", cls: "border-red-300 text-red-700 bg-red-50 hover:bg-red-100", activeCls: "bg-red-600 text-white border-transparent" },
+                    { id: "note",     label: "Add Note", icon: "📝", cls: "border-nhs-blue/30 text-nhs-blue bg-nhs-blue/5 hover:bg-nhs-blue/10", activeCls: "bg-nhs-blue text-white border-transparent" },
+                    { id: "escalate", label: "Escalate",  icon: "🚨", cls: "border-red-300 text-red-700 bg-red-50 hover:bg-red-100",              activeCls: "bg-red-600 text-white border-transparent" },
                   ].map((btn) => (
                     <button
                       key={btn.id}
@@ -737,10 +755,6 @@ export default function PatientPage() {
                 {activeAction === "note" && (
                   <ActionForm placeholder="Clinical note…" value={noteText} onChange={setNoteText}
                     onSubmit={handleNote} onCancel={() => setActiveAction(null)} loading={actionLoading} label="Save Note" />
-                )}
-                {activeAction === "probe" && (
-                  <ActionForm placeholder="Probe instructions for the AI agent…" value={probeInstructions} onChange={setProbeInstructions}
-                    onSubmit={handleProbe} onCancel={() => setActiveAction(null)} loading={actionLoading} label="Schedule Probe" />
                 )}
                 {activeAction === "escalate" && (
                   <ActionForm placeholder="Escalation reason…" value={escalateNote} onChange={setEscalateNote}
@@ -799,6 +813,53 @@ export default function PatientPage() {
       </div>
       <PatientChat patientId={patientId} patientName={patient.full_name} />
     </Layout>
+  );
+}
+
+function TranscriptBubbles({ raw }) {
+  const lines = raw
+    .split("\n")
+    .map((line) => {
+      const patientMatch = line.match(/^\[PATIENT\]:\s*(.*)/i);
+      const agentMatch   = line.match(/^\[AGENT\]:\s*(.*)/i);
+      if (patientMatch) return { role: "patient", text: patientMatch[1].trim() };
+      if (agentMatch)   return { role: "agent",   text: agentMatch[1].trim() };
+      return null;
+    })
+    .filter(Boolean);
+
+  if (lines.length === 0) {
+    return (
+      <div className="mt-2 rounded-xl bg-gray-50 border border-gray-100 p-3 text-xs text-gray-600 whitespace-pre-wrap max-h-64 overflow-y-auto leading-relaxed">
+        {raw}
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-3 rounded-xl border border-gray-100 bg-gray-50 max-h-80 overflow-y-auto p-3 space-y-2">
+      {lines.map((msg, i) => {
+        const isAgent = msg.role === "agent";
+        return (
+          <div key={i} className={`flex gap-2 ${isAgent ? "flex-row" : "flex-row-reverse"}`}>
+            {/* Avatar */}
+            <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5 ${
+              isAgent ? "bg-nhs-blue text-white" : "bg-gray-300 text-gray-700"
+            }`}>
+              {isAgent ? "AI" : "PT"}
+            </div>
+            {/* Bubble */}
+            <div className={`max-w-[78%] px-3 py-1.5 rounded-2xl text-xs leading-relaxed ${
+              isAgent
+                ? "bg-white border border-gray-200 text-gray-800 rounded-tl-none"
+                : "bg-nhs-blue/10 text-nhs-blue border border-nhs-blue/20 rounded-tr-none"
+            }`}>
+              {msg.text}
+            </div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 

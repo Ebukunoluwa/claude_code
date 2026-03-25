@@ -29,7 +29,7 @@ class Settings(BaseSettings):
 
     # ── Groq ─────────────────────────────────────────────────────────────────
     groq_api_key: str = Field(..., description="Groq API key")
-    groq_model: str = Field(default="openai/gpt-oss-120b", description="Groq model ID")
+    groq_model: str = Field(default="llama-3.3-70b-versatile", description="Groq model ID")
 
     # ── OpenAI (fallback LLM) ────────────────────────────────────────────────
     openai_api_key: str = Field(default="", description="OpenAI API key (fallback LLM)")

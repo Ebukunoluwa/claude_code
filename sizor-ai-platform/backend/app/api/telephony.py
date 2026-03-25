@@ -43,9 +43,31 @@ async def inbound_call(
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid Twilio signature")
 
     call_id = str(uuid.uuid4())
-    logger.info("Inbound call — call_sid=%s from=%s call_id=%s", CallSid, From, call_id)
+    logger.info("Inbound call — call_sid=%s from=%s to=%s call_id=%s", CallSid, From, To, call_id)
 
-    return Response(
-        content='<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
-        media_type="application/xml",
-    )
+    sip_domain = getattr(settings, "livekit_sip_inbound_domain", "")
+    if sip_domain:
+        # Route the call into the LiveKit SIP inbound trunk.
+        # LiveKit receives the INVITE, creates a room, and dispatches the inbound agent worker.
+        # 'To' is the dialled Twilio number (E.164) — used as the SIP username so LiveKit
+        # dispatch rules can match on the destination number.
+        sip_uri = f"sip:{To}@{sip_domain}"
+        xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Dial>
+    <Sip>{sip_uri}</Sip>
+  </Dial>
+</Response>"""
+        logger.info("Routing inbound call to LiveKit SIP — %s", sip_uri)
+    else:
+        # Domain not yet configured — play an informational message instead of silence
+        logger.warning("LIVEKIT_SIP_INBOUND_DOMAIN not set — inbound call cannot be routed")
+        xml = """<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="alice">
+    Thank you for calling. Our call service is currently being configured.
+    Please try again shortly or contact your GP directly. Goodbye.
+  </Say>
+</Response>"""
+
+    return Response(content=xml, media_type="application/xml")

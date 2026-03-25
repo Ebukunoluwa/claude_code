@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .database import init_db
-from .api import auth, dashboard, patients, calls, decisions, internal, telephony, chat
+from .api import auth, dashboard, patients, calls, decisions, internal, telephony, chat, probe_calls, inbound
 
 app = FastAPI(title="Sizor AI Platform", version="1.0.0")
 
@@ -21,6 +21,8 @@ app.include_router(decisions.router)
 app.include_router(internal.router)
 app.include_router(telephony.router)
 app.include_router(chat.router)
+app.include_router(probe_calls.router)
+app.include_router(inbound.router)
 
 
 @app.on_event("startup")
