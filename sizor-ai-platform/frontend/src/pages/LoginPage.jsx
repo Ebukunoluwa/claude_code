@@ -56,7 +56,7 @@ export default function LoginPage() {
             </div>
             <div>
               <div className="text-white font-bold text-lg leading-none">Sizor AI</div>
-              <div className="text-blue-200 text-xs mt-0.5">NHS Clinical Platform</div>
+              <div className="text-blue-200 text-xs mt-0.5">Clinical Intelligence Platform</div>
             </div>
           </div>
         </div>
@@ -68,7 +68,7 @@ export default function LoginPage() {
               AI-Powered Post-<br />Discharge Care
             </h1>
             <p className="text-blue-200 mt-4 text-base leading-relaxed max-w-sm">
-              Intelligent voice check-ins, clinical decision support, and real-time patient monitoring for NHS clinicians.
+              Intelligent voice check-ins, clinical decision support, and real-time patient monitoring for clinicians.
             </p>
           </div>
 
@@ -128,7 +128,7 @@ export default function LoginPage() {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-nhs-blue/30 focus:border-nhs-blue transition"
+                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-nhs-blue/30 focus:border-nhs-blue transition text-gray-900 placeholder-gray-400"
                 placeholder="name@nhs.uk"
               />
             </div>
@@ -141,7 +141,7 @@ export default function LoginPage() {
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-nhs-blue/30 focus:border-nhs-blue transition"
+                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-nhs-blue/30 focus:border-nhs-blue transition text-gray-900 placeholder-gray-400"
                 placeholder="••••••••"
               />
             </div>
@@ -166,6 +166,34 @@ export default function LoginPage() {
           <p className="mt-8 text-center text-xs text-gray-400">
             NHS-authorised clinical staff only
           </p>
+
+          {/* Demo credentials */}
+          <div className="mt-6 p-4 bg-gray-50 border border-gray-200 rounded-xl">
+            <p className="text-xs font-semibold text-gray-500 mb-3">DEMO ACCOUNTS — click to autofill</p>
+            <div className="space-y-1.5">
+              {[
+                { name:"Dr. Emily Chen",      role:"Doctor",          email:"emily.chen@royalfree.nhs.uk" },
+                { name:"Dr. James Okafor",    role:"Consultant",      email:"james.okafor@royalfree.nhs.uk" },
+                { name:"Dr. Sarah Whitfield", role:"Midwifery Lead",  email:"sarah.whitfield@royalfree.nhs.uk" },
+                { name:"Dr. Marcus Holt",     role:"Anaesthetist",    email:"marcus.holt@royalfree.nhs.uk" },
+                { name:"Nurse Clara Bridges", role:"Ward Nurse",      email:"clara.bridges@royalfree.nhs.uk" },
+              ].map(c => (
+                <button
+                  key={c.email}
+                  type="button"
+                  onClick={() => { setEmail(c.email); setPassword("password123"); }}
+                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-white hover:border-gray-300 border border-transparent transition flex items-center justify-between gap-2"
+                >
+                  <div>
+                    <p className="text-xs font-semibold text-gray-800">{c.name}</p>
+                    <p className="text-xs text-gray-400 font-mono">{c.email}</p>
+                  </div>
+                  <span className="text-xs text-gray-400 bg-gray-200 rounded px-1.5 py-0.5 shrink-0">{c.role}</span>
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-gray-400 mt-2">Password: <span className="font-mono font-semibold">password123</span></p>
+          </div>
         </div>
       </div>
     </div>

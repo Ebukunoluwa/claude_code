@@ -1,9 +1,9 @@
 # LiveKit
 livekit==1.0.25
-livekit-agents==1.4.1
+livekit-agents==1.4.6
 livekit-api==1.1.0
 livekit-plugins-deepgram==1.4.1
-livekit-plugins-cartesia==1.4.1
+livekit-plugins-cartesia==1.4.6
 livekit-plugins-silero==1.4.1
 livekit-plugins-openai==1.4.1
 

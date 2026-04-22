@@ -35,5 +35,13 @@ class Settings(BaseSettings):
     twilio_sip_trunk_id: str = ""       # LiveKit SIP trunk resource ID (ST_xxx)
     livekit_sip_inbound_domain: str = ""  # e.g. xxxxx.pstn.livekit.cloud
 
+    # SMTP — for sending patient summary reports by email
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from_email: str = "noreply@sizor.ai"
+    smtp_use_tls: bool = True
+
 
 settings = Settings()

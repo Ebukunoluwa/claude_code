@@ -72,10 +72,16 @@ def classify_turn(text: str) -> tuple[TriageLevel, list[str]]:
     return TriageLevel.GREEN, []
 
 
-# Escalation phrase the agent should speak verbatim on RED detection
-RED_ESCALATION_PHRASE = (
-    "This sounds like it may require urgent medical attention. "
-    "Please call 999 immediately or go to your nearest A&E. "
-    "I'm flagging this call for immediate clinical review. "
-    "Please seek help right now. Goodbye."
+# Soft acknowledgement injected as a system instruction when a RED flag is detected.
+# Agent acknowledges warmly, gently signposts 999/111, then continues the call.
+RED_FLAG_SYSTEM_INSTRUCTION = (
+    "[RED FLAG DETECTED — do NOT end the call, do NOT alarm the patient] "
+    "Acknowledge what they just said warmly and with genuine empathy — for example: "
+    "'Oh I'm really sorry to hear that, that must be really hard for you.' "
+    "Then gently say something like: 'I just want to make sure you know — if things feel "
+    "like they're getting worse or you're worried at any point, please don't hesitate to "
+    "ring NHS 111 or 999, they're always there to help.' "
+    "Then continue with the rest of the call questions as normal. "
+    "IMPORTANT: Never say 'that sounds concerning', 'that's worrying', 'that requires urgent attention' "
+    "or anything that might frighten them. Stay warm, calm, and caring throughout."
 )

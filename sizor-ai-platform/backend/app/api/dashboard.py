@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_
 from ..database import get_db
-from ..models import Patient, CallRecord, SOAPNote, UrgencyFlag, FTPRecord, CallSchedule
+from ..models import Patient, CallRecord, SOAPNote, UrgencyFlag, FTPRecord, CallSchedule, Ward
 from .auth import get_current_clinician
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
@@ -24,9 +24,30 @@ async def get_dashboard(
     ) or 0
     calls_missed = await db.scalar(
         select(func.count(CallRecord.call_id)).where(
-            and_(CallRecord.started_at >= today_start, CallRecord.status == "missed")
+            CallRecord.status == "missed"
         )
     ) or 0
+
+    missed_result = await db.execute(
+        select(CallRecord, Patient)
+        .join(Patient, CallRecord.patient_id == Patient.patient_id)
+        .where(CallRecord.status == "missed")
+        .order_by(CallRecord.started_at.desc())
+        .limit(50)
+    )
+    missed_calls = [
+        {
+            "call_id":      str(r.CallRecord.call_id),
+            "patient_id":   str(r.CallRecord.patient_id),
+            "patient_name": r.Patient.full_name,
+            "condition":    r.Patient.condition,
+            "direction":    r.CallRecord.direction,
+            "trigger_type": r.CallRecord.trigger_type,
+            "day_in_recovery": r.CallRecord.day_in_recovery,
+            "started_at":   r.CallRecord.started_at.isoformat() if r.CallRecord.started_at else None,
+        }
+        for r in missed_result.all()
+    ]
     awaiting_review = await db.scalar(
         select(func.count(SOAPNote.soap_id)).where(SOAPNote.clinician_reviewed == False)
     ) or 0
@@ -36,11 +57,16 @@ async def get_dashboard(
         )
     ) or 0
 
-    patients_result = await db.execute(select(Patient).where(Patient.status == "active"))
-    patients = patients_result.scalars().all()
+    patients_result = await db.execute(
+        select(Patient, Ward.ward_name, Ward.specialty)
+        .outerjoin(Ward, Patient.ward_id == Ward.ward_id)
+        .where(Patient.status.in_(["active", "escalated", "monitoring"]))
+    )
+    patients_rows = patients_result.all()
+    patients = [(p, wn, ws) for p, wn, ws in patients_rows]
 
     worklist = []
-    for p in patients:
+    for p, ward_name, ward_specialty in patients:
         call_result = await db.execute(
             select(CallRecord)
             .where(CallRecord.patient_id == p.patient_id)
@@ -73,7 +99,10 @@ async def get_dashboard(
         reviewed = True
         if last_call:
             soap_result = await db.execute(
-                select(SOAPNote).where(SOAPNote.call_id == last_call.call_id)
+                select(SOAPNote)
+                .where(SOAPNote.call_id == last_call.call_id)
+                .order_by(SOAPNote.generated_at.desc())
+                .limit(1)
             )
             soap = soap_result.scalar_one_or_none()
             reviewed = soap.clinician_reviewed if soap else True
@@ -96,6 +125,7 @@ async def get_dashboard(
         worklist.append({
             "patient_id": str(p.patient_id),
             "patient_name": p.full_name,
+            "nhs_number": p.nhs_number,
             "condition": p.condition,
             "day_in_recovery": day,
             "last_call_at": last_call.started_at.isoformat() if last_call else None,
@@ -106,6 +136,8 @@ async def get_dashboard(
             "urgency_severity": severity,
             "reviewed": reviewed,
             "severity_order": severity_order.get(severity, 2),
+            "ward_name": ward_name,
+            "ward_specialty": ward_specialty,
         })
 
     # Sort: RED unreviewed → AMBER unreviewed → GREEN unreviewed → reviewed by urgency
@@ -120,4 +152,5 @@ async def get_dashboard(
             "open_escalations": open_escalations,
         },
         "worklist": worklist,
+        "missed_calls": missed_calls,
     }

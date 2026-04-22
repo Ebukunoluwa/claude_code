@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from ..database import get_db
-from ..models import CallRecord, SOAPNote, ClinicalExtraction, UrgencyFlag, ClinicianAction, Patient
+from ..models import CallRecord, SOAPNote, ClinicalExtraction, UrgencyFlag, ClinicianAction, Patient, CallSchedule
 from .auth import get_current_clinician
 from ..tasks.celery_app import celery_app
 from ..config import settings
@@ -60,30 +60,56 @@ async def ingest_call_from_voice_agent(
 
     probe_call_id = data.get("probe_call_id")
 
+    # Determine final call status — agent sends call_status="missed" for unanswered calls
+    transcript = data.get("transcript", "")
+    final_status = (
+        data.get("call_status")
+        or ("missed" if not transcript and data.get("duration_seconds", 1) == 0 else "completed")
+    )
+
     call = CallRecord(
         call_id=uuid.UUID(call_id),
         patient_id=patient.patient_id,
         direction=data.get("direction", "outbound"),
         trigger_type=data.get("trigger_type", "scheduled"),
         day_in_recovery=day_in_recovery,
-        status="completed",
+        status=final_status,
         duration_seconds=data.get("duration_seconds"),
         started_at=datetime.now(timezone.utc),
-        transcript_raw=data.get("transcript", ""),
+        transcript_raw=transcript,
         call_sid=data.get("call_sid"),
         probe_instructions=data.get("probe_instructions"),
     )
     db.add(call)
+    await db.flush()
+
+    # Update the matching dispatched CallSchedule → completed / missed
+    # Match by patient + status=dispatched, pick the one closest in time to now
+    sched_result = await db.execute(
+        select(CallSchedule)
+        .where(
+            CallSchedule.patient_id == patient.patient_id,
+            CallSchedule.status == "dispatched",
+        )
+        .order_by(CallSchedule.scheduled_for.desc())
+        .limit(1)
+    )
+    dispatched_sched = sched_result.scalar_one_or_none()
+    if dispatched_sched:
+        dispatched_sched.status = "completed" if final_status == "completed" else "missed"
+
     await db.commit()
 
     # Trigger full pipeline (SOAP, extraction, FTP, flags, longitudinal summary)
-    celery_app.send_task("process_call", args=[call_id])
+    # Only run pipeline for calls with actual content
+    if final_status == "completed" and transcript.strip():
+        celery_app.send_task("process_call", args=[call_id])
 
     # If this is a probe call, update its status and link SOAP note after pipeline
     if probe_call_id:
         celery_app.send_task("link_probe_call", args=[probe_call_id, call_id], countdown=30)
 
-    return {"call_id": call_id, "patient_id": str(patient.patient_id), "status": "queued"}
+    return {"call_id": call_id, "patient_id": str(patient.patient_id), "status": final_status}
 
 
 @router.get("/{call_id}")

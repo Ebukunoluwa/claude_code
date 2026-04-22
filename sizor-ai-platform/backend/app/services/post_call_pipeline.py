@@ -27,18 +27,39 @@ def _parse_json(text: str):
     return {}
 
 
-async def extract_clinical_scores(transcript: str) -> dict:
+async def extract_clinical_scores(transcript: str, domains: list | None = None) -> dict:
     llm = LLMClient()
+
+    domain_instruction = ""
+    if domains:
+        domain_list = ", ".join(d.replace("_", " ") for d in domains)
+        domain_instruction = (
+            f"\n\nIMPORTANT — this call used a 0-4 clinical scoring scale for these specific "
+            f"pathway domains: {domain_list}. "
+            "Also extract 'domain_scores' as a JSON object where each key is a domain name "
+            "(snake_case, exactly as listed above) and the value is the 0-4 score the patient "
+            "gave or implied during the call. Infer from context if a numeric score wasn't stated. "
+            "Omit domains that were not discussed at all."
+        )
+
     system = (
         "You are a clinical data extraction system. Extract the following structured data "
         "from this patient call transcript. Return ONLY valid JSON, no other text. "
         "Extract: pain_score (0-10), breathlessness_score (0-10), mobility_score (0-10), "
         "appetite_score (0-10), mood_score (0-10), medication_adherence (true/false), "
         "and condition_specific_flags as a JSON object containing any clinically relevant "
-        "observations mentioned. If a domain is not mentioned return null."
+        "observations mentioned. If a value is not mentioned return null."
+        + domain_instruction
     )
     resp = await llm.complete(system, f"TRANSCRIPT:\n{transcript}")
-    return _parse_json(resp)
+    result = _parse_json(resp)
+
+    # Nest domain_scores inside condition_specific_flags so it's stored in the JSONB column
+    if domains and isinstance(result.get("domain_scores"), dict):
+        flags = result.setdefault("condition_specific_flags", {})
+        flags["domain_scores"] = result.pop("domain_scores")
+
+    return result
 
 
 async def generate_soap_note(transcript: str) -> dict:

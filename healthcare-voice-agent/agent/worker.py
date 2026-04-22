@@ -26,6 +26,7 @@ from providers.cartesia_tts import CartesiaTTSProvider
 from providers.deepgram_stt import DeepgramSTTProvider
 from providers.groq_llm import GroqLLMProvider
 from providers.openai_llm import OpenAILLMProvider
+from providers.openai_tts import OpenAITTSProvider
 from providers.assemblyai_stt import AssemblyAISTTProvider
 from providers.elevenlabs_tts import ElevenLabsTTSProvider
 
@@ -34,9 +35,9 @@ logger = logging.getLogger(__name__)
 
 def prewarm(proc) -> None:
     proc.userdata["vad"] = silero.VAD.load(
-        min_silence_duration=1.2,
-        min_speech_duration=0.1,
-        padding_duration=0.4,
+        min_silence_duration=0.2,
+        min_speech_duration=0.05,
+        padding_duration=0.1,
     )
     logger.info("Silero VAD pre-warmed")
 
@@ -45,7 +46,7 @@ async def entrypoint(ctx: JobContext) -> None:
     await ctx.connect()
 
     room_name = ctx.room.name
-    vad = ctx.proc.userdata.get("vad") or silero.VAD.load(min_silence_duration=0.9)
+    vad = ctx.proc.userdata.get("vad") or silero.VAD.load(min_silence_duration=0.2)
 
     if room_name.startswith("inbound-"):
         # ── Patient called in → inbound agent ────────────────────────────────
@@ -56,16 +57,11 @@ async def entrypoint(ctx: JobContext) -> None:
             model="nova-3-general",
             language="en-GB",
         )
-        tts_instance = cartesia.TTS(
-            api_key=settings.cartesia_api_key,
-            model="sonic-3",
-            voice=settings.cartesia_voice_id,
-            language="en",
-        )
-        llm_instance = lk_openai.LLM(
-            api_key=settings.openai_api_key,
-            model="gpt-4o-mini",
-        )
+        tts_instance = CartesiaTTSProvider().build()
+        llm_instance = llm.FallbackAdapter([
+            GroqLLMProvider().build(),
+            OpenAILLMProvider().build(),
+        ])
         agent = SizorInboundAgent()
 
     else:
@@ -77,13 +73,10 @@ async def entrypoint(ctx: JobContext) -> None:
             DeepgramSTTProvider().build(),
             AssemblyAISTTProvider().build(),
         ])
-        tts_instance = tts.FallbackAdapter([
-            CartesiaTTSProvider().build(),
-            ElevenLabsTTSProvider().build(),
-        ])
+        tts_instance = CartesiaTTSProvider().build()
         llm_instance = llm.FallbackAdapter([
-            OpenAILLMProvider().build(),
             GroqLLMProvider().build(),
+            OpenAILLMProvider().build(),
         ])
         agent = CheckInAgent()
 

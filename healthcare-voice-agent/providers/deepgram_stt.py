@@ -8,7 +8,7 @@ from providers.base_stt import BaseSTTProvider
 
 
 class DeepgramSTTProvider(BaseSTTProvider):
-    """Deepgram Nova-2, en-GB, streaming STT."""
+    """Deepgram Nova-3, en-GB, streaming STT."""
 
     def build(self) -> STT:
         return deepgram.STT(

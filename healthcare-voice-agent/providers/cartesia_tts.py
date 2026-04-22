@@ -16,4 +16,5 @@ class CartesiaTTSProvider(BaseTTSProvider):
             model="sonic-3",
             voice=settings.cartesia_voice_id,
             language="en",
+            word_timestamps=False,
         )

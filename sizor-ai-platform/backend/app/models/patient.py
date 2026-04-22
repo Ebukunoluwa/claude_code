@@ -1,6 +1,6 @@
 import uuid
-from datetime import datetime, date, timezone
-from sqlalchemy import String, DateTime, Date, ForeignKey, Text
+from datetime import datetime, date, time, timezone
+from sqlalchemy import String, DateTime, Date, Time, ForeignKey, Text
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from ..database import Base
@@ -23,6 +23,8 @@ class Patient(Base):
     discharge_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     program_module: Mapped[str] = mapped_column(String(50), nullable=False)  # post_discharge/post_surgery/routine_checks
     status: Mapped[str] = mapped_column(String(50), default="active")  # active/discharged/escalated/completed
+    preferred_call_time: Mapped[time | None] = mapped_column(Time, nullable=True)
+    postcode: Mapped[str | None] = mapped_column(String(10), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     hospital = relationship("Hospital", back_populates="patients")

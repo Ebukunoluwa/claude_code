@@ -33,23 +33,19 @@ import uuid
 from typing import Annotated, Optional
 
 import httpx
+from livekit import api as lk_api
 from livekit.agents import Agent, AgentSession, JobContext, WorkerOptions, cli
 from livekit.agents import llm, stt, tts
-from livekit.agents.llm import ChatContext, ChatMessage, function_tool
+from livekit.agents.llm import ChatContext, ChatMessage, function_tool  # ChatMessage used in on_user/agent_turn_completed signatures
 from livekit.plugins import cartesia, deepgram, silero
 from livekit.plugins import openai as lk_openai
 
-from agent.triage import TriageLevel, classify_turn
+from agent.triage import RED_FLAG_SYSTEM_INSTRUCTION, TriageLevel, classify_turn
 from config.settings import settings
 from sizor_ai.client import get_patient_call_context
 
 logger = logging.getLogger(__name__)
 
-_INBOUND_RED_ESCALATION = (
-    "I'm concerned about what you've described. "
-    "Please call 999 now or go to A&E immediately. "
-    "I'm also alerting your care team right away. Please don't wait. Goodbye."
-)
 
 _GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 
@@ -71,18 +67,19 @@ and you have answered. You are NOT making an outbound call — the patient calle
    Is there anything else?" then call save_call_record() and say goodbye.
 
 VERIFICATION FAILURE:
-- First failure: apologise and ask them to repeat their NHS number slowly, one digit \
-  at a time (e.g. "Could you say each digit separately, like 1... 6... 5...").
-- Second failure: ask them to confirm the digits you heard back to them one by one.
-- Third failure: "I'm sorry, I can't verify your details today. Please contact \
-  your GP surgery directly or call 111. Goodbye."
-- After a third failure do not call any other tool.
+- If NHS number fails: say warmly "No problem at all — could I take your date of birth \
+  instead to verify your identity?" then call verify_patient_dob() with their DOB.
+- If DOB also fails: apologise warmly and let them know you cannot verify today. \
+  Ask them to contact their GP directly. Continue the call to help them as best you can.
 
 RED FLAGS — if the patient mentions chest pain, difficulty breathing, stroke \
 signs, coughing blood, sudden severe headache, loss of consciousness, or sepsis \
-signs, call escalate_patient() immediately and say:
-"I'm very concerned. Please call 999 now or go to A&E immediately. \
-I'm alerting your care team. Please don't wait. Goodbye."
+signs, call escalate_patient() to alert the care team, then respond with warmth \
+and empathy — for example: "Oh I'm really sorry to hear that, that must be really \
+hard for you." Gently let them know: "I just want to make sure you know — if things \
+feel like they're getting worse, please don't hesitate to ring NHS 111 or 999, \
+they're always there to help." Then continue asking your remaining questions as normal. \
+NEVER say "that sounds concerning", "that's worrying", or anything that might frighten them.
 
 You are on a phone call. Keep every response short and natural — one or two \
 sentences at a time. Never diagnose. Never give medical advice.\
@@ -91,6 +88,32 @@ sentences at a time. Never diagnose. Never give medical advice.\
 
 # ── Enriched prompt injected after successful verification ────────────────────
 
+def _recovery_phase_guidance(day: int | None) -> str:
+    """Return a short clinical focus note based on days post-discharge."""
+    if day is None:
+        return ""
+    if day <= 3:
+        return (
+            f"\nRECOVERY PHASE: Day {day} — EARLY (0–3 days). "
+            "Priority areas: acute pain, wound/site status, fever/infection signs, "
+            "medication initiation, basic mobility. Patients at highest risk of "
+            "immediate post-discharge complications."
+        )
+    elif day <= 14:
+        return (
+            f"\nRECOVERY PHASE: Day {day} — MID (4–14 days). "
+            "Priority areas: wound healing progression, mobility improvement, "
+            "appetite/nutrition, mood (watch for post-operative depression), "
+            "medication adherence, signs of delayed complications."
+        )
+    else:
+        return (
+            f"\nRECOVERY PHASE: Day {day} — LATE/ONGOING (14+ days). "
+            "Priority areas: functional recovery, return to activities, "
+            "persistent symptoms, readiness for follow-up appointments."
+        )
+
+
 def _build_enriched_prompt(
     patient_name: str,
     patient: dict,
@@ -98,6 +121,7 @@ def _build_enriched_prompt(
     call_context: dict | None = None,
 ) -> str:
     first = patient_name.split()[0] if patient_name else "the patient"
+    day_in_recovery = patient.get("day_in_recovery")
 
     lines = [
         f"Patient {patient.get('full_name', patient_name)} has been VERIFIED.",
@@ -107,7 +131,10 @@ def _build_enriched_prompt(
     if patient.get("procedure"):
         lines.append(f"Procedure    : {patient['procedure']}")
     if patient.get("discharge_date"):
-        lines.append(f"Discharge    : {patient['discharge_date']}")
+        discharge_str = patient["discharge_date"]
+        if day_in_recovery is not None:
+            discharge_str += f"  (Day {day_in_recovery} post-discharge today)"
+        lines.append(f"Discharge    : {discharge_str}")
     if patient.get("primary_diagnosis"):
         lines.append(f"Diagnosis    : {patient['primary_diagnosis']}")
     meds = patient.get("current_medications") or []
@@ -126,7 +153,8 @@ def _build_enriched_prompt(
             parts.append(f"  Call {i} ({date}): {assessment}")
         summary_block = "\nLast 3 call summaries (for comparison):\n" + "\n".join(parts)
 
-    patient_ctx = "\n".join(lines) + summary_block
+    day_str = str(day_in_recovery) if day_in_recovery is not None else "unknown"
+    patient_ctx = "\n".join(lines) + _recovery_phase_guidance(day_in_recovery) + summary_block
 
     # Previous call context block (open flags, scores, active concerns)
     context_block = ""
@@ -180,9 +208,14 @@ CONTINUITY INSTRUCTIONS:
 {patient_ctx}{context_block}
 ────────────────────────────────────────────────────────────────────────────
 
-The patient is now verified. Address them as {first}. \
-Say "Thank you {first}, I've got your records here." then return to their \
-original concern and continue with focused clarifying questions.\
+The patient is now verified. Address them as {first}.
+Say "Thank you {first}, I've got your records here." then return to their original concern.
+
+IMPORTANT — use the patient record above to make this feel like a real clinical call:
+- If you know their day in recovery, acknowledge it naturally, e.g. "You're on Day {day_str} since your discharge — how have things been going?" or reference it when asking about symptoms.
+- Frame questions around their specific condition/procedure, not generic questions.
+- If there are open flags or previous call concerns, ask about those specifically: "Last time there was a concern about X — how has that been?"
+- Keep every response to 1–2 sentences. Never read clinical notes aloud.\
 """
 
 
@@ -250,17 +283,20 @@ class SizorInboundAgent(Agent):
                 role = msg.role.value if hasattr(msg.role, "value") else str(msg.role)
                 if role not in ("assistant", "user"):
                     continue
-                content = msg.content
-                if isinstance(content, list):
-                    text = " ".join(
-                        p if isinstance(p, str) else getattr(p, "text", "")
-                        for p in content
-                        if p
-                    )
-                elif isinstance(content, str):
-                    text = content
+                if hasattr(msg, "text_content") and msg.text_content:
+                    text = msg.text_content
                 else:
-                    continue
+                    content = msg.content
+                    if isinstance(content, str):
+                        text = content
+                    elif isinstance(content, list):
+                        text = " ".join(
+                            p if isinstance(p, str) else getattr(p, "text", str(p))
+                            for p in content
+                            if p
+                        )
+                    else:
+                        text = ""
                 text = text.strip()
                 if not text:
                     continue
@@ -380,6 +416,79 @@ class SizorInboundAgent(Agent):
         if self._verification_attempts >= 3:
             self._verification_failed = True
         return json.dumps({"verified": False, "reason": reason})
+
+    # ── Tool 1b: verify_patient_dob (fallback) ────────────────────────────────
+
+    @function_tool(
+        description=(
+            "Fallback identity verification using date of birth. "
+            "Call this ONLY when verify_patient() has already failed for the NHS number. "
+            "Pass the patient's name and date of birth as they stated it."
+        )
+    )
+    async def verify_patient_dob(
+        self,
+        full_name: Annotated[str, "Patient's full name as they stated it"],
+        date_of_birth: Annotated[str, "Patient's date of birth — convert spoken dates to YYYY-MM-DD format, e.g. 'fifteenth of March nineteen eighty-two' → '1982-03-15'"],
+    ) -> str:
+        nhs_clean = self._nhs_number  # use what we already collected
+
+        if not settings.sizor_api_url or not settings.sizor_internal_key:
+            logger.warning("Sizor not configured — verify_patient_dob returning mock success")
+            self._patient_verified = True
+            return json.dumps({"verified": True, "patient_name": full_name})
+
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.post(
+                    self._api("/api/patients/verify-dob"),
+                    json={
+                        "nhs_number": nhs_clean,
+                        "full_name": full_name,
+                        "date_of_birth": date_of_birth,
+                    },
+                    headers=self._headers(),
+                )
+                data = resp.json()
+                logger.info(
+                    "verify_patient_dob response — status=%d verified=%s",
+                    resp.status_code, data.get("verified"),
+                )
+        except Exception as exc:
+            logger.error("verify_patient_dob HTTP error: %s", exc)
+            return json.dumps({"verified": False, "reason": "Service temporarily unavailable."})
+
+        if data.get("verified"):
+            patient = data.get("patient", {})
+            summaries = data.get("recent_summaries", [])
+
+            self._patient_verified = True
+            self._patient_name = patient.get("full_name", full_name)
+            self._patient_id = patient.get("patient_id", "")
+
+            call_context = None
+            try:
+                call_context = await get_patient_call_context(patient.get("nhs_number", nhs_clean))
+            except Exception as exc:
+                logger.warning("Could not fetch inbound call context: %s", exc)
+
+            enriched = _build_enriched_prompt(self._patient_name, patient, summaries, call_context)
+            try:
+                await self.update_instructions(enriched)
+                logger.info(
+                    "System prompt enriched post-DOB-verification — call_id=%s patient=%s",
+                    self._call_id, self._patient_name,
+                )
+            except Exception as exc:
+                logger.error("update_instructions failed: %s", exc)
+
+            return json.dumps({
+                "verified": True,
+                "patient_name": self._patient_name,
+                "condition": patient.get("condition"),
+            })
+
+        return json.dumps({"verified": False, "reason": data.get("reason", "Date of birth could not be verified.")})
 
     # ── Tool 2: escalate_patient ───────────────────────────────────────────────
 
@@ -534,6 +643,18 @@ class SizorInboundAgent(Agent):
         """Wait for TTS to finish speaking then hang up."""
         await asyncio.sleep(delay)
         try:
+            async with lk_api.LiveKitAPI(
+                url=settings.livekit_url,
+                api_key=settings.livekit_api_key,
+                api_secret=settings.livekit_api_secret,
+            ) as lk_client:
+                await lk_client.room.delete_room(
+                    lk_api.DeleteRoomRequest(room=self._room_name)
+                )
+            logger.info("Room deleted — SIP call terminated — room=%s", self._room_name)
+        except Exception as exc:
+            logger.warning("Room deletion failed (%s) — falling back to session close", exc)
+        try:
             await self.session.aclose()
         except Exception:
             pass
@@ -542,6 +663,28 @@ class SizorInboundAgent(Agent):
 
     async def on_enter(self) -> None:
         """Read room attributes then greet immediately."""
+        # Register agent-turn capture — on_agent_turn_completed does not exist
+        # in livekit-agents 1.5+; use the conversation_item_added session event.
+        def _on_conversation_item(event) -> None:
+            try:
+                msg = event.item
+                if getattr(msg, "role", None) != "assistant":
+                    return
+                text = (msg.text_content or "").strip()
+                if not text:
+                    return
+                if self._turn_end_time:
+                    logger.info("LATENCY user→agent: %.3fs", time.time() - self._turn_end_time)
+                    self._turn_end_time = 0.0
+                self._conversation_turns.append(("agent", text))
+                lower = text.lower()
+                if any(w in lower for w in ("goodbye", "take care", "bye", "farewell")):
+                    logger.info("Goodbye detected — closing session in 5s — call_id=%s", self._call_id)
+                    asyncio.create_task(self._close_after_delay(5.0))
+            except Exception:
+                pass
+        self.session.on("conversation_item_added", _on_conversation_item)
+
         try:
             session = self.session
             remote_participants = session.room_io.room.remote_participants
@@ -566,13 +709,8 @@ class SizorInboundAgent(Agent):
         )
         try:
             await self.session.say(greeting, allow_interruptions=True)
-            # Manually add the greeting to history so the LLM knows
-            # it was already spoken and doesn't re-introduce itself.
-            self.session.history.messages.append(
-                ChatMessage(role="assistant", content=greeting)
-            )
         except Exception as exc:
-            logger.error("Greeting failed: %s", exc)
+            logger.error("Greeting failed: %s", exc, exc_info=True)
 
     async def on_exit(self) -> None:
         """Safety net — always save the call record and SOAP note on exit."""
@@ -596,14 +734,18 @@ class SizorInboundAgent(Agent):
     ) -> None:
         """Real-time red-flag triage on every patient utterance."""
         self._turn_end_time = time.time()
-        content = new_message.content
-        if isinstance(content, list):
-            text = " ".join(
-                p if isinstance(p, str) else getattr(p, "text", "")
-                for p in content
-            )
+        if hasattr(new_message, "text_content") and new_message.text_content:
+            text = new_message.text_content
         else:
-            text = content or ""
+            content = new_message.content
+            if isinstance(content, list):
+                text = " ".join(
+                    p if isinstance(p, str) else getattr(p, "text", str(p))
+                    for p in content
+                    if p
+                )
+            else:
+                text = content or ""
         self._conversation_turns.append(("patient", text))
 
         level, reasons = classify_turn(text)
@@ -615,51 +757,15 @@ class SizorInboundAgent(Agent):
             logger.warning(
                 "RED flag detected — call_id=%s reasons=%s", self._call_id, reasons
             )
-            await self.session.say(_INBOUND_RED_ESCALATION, allow_interruptions=False)
             asyncio.create_task(self.escalate_patient(reason="; ".join(reasons)))
-            await asyncio.sleep(8)
-            await self.session.aclose()
-            return
+            turn_ctx.add_message(role="system", content=RED_FLAG_SYSTEM_INSTRUCTION)
 
         if level == TriageLevel.AMBER and self._triage_level == TriageLevel.GREEN:
             self._triage_level = TriageLevel.AMBER
             self._triage_reasons.extend(reasons)
             logger.info("AMBER flag — call_id=%s reasons=%s", self._call_id, reasons)
 
-        if self._verification_failed and not self._call_saved:
-            await self.session.say(
-                "I'm sorry I couldn't verify your details, "
-                "please contact your GP directly. Goodbye.",
-                allow_interruptions=False,
-            )
-            await asyncio.sleep(5)
-            await self.session.aclose()
 
-    async def on_agent_turn_completed(
-        self,
-        turn_ctx: ChatContext,
-        new_message: ChatMessage,
-    ) -> None:
-        """Record agent turns and log latency."""
-        if self._turn_end_time:
-            latency = time.time() - self._turn_end_time
-            logger.info("LATENCY user→agent: %.3fs", latency)
-            self._turn_end_time = 0.0
-        content = new_message.content
-        if isinstance(content, list):
-            text = " ".join(
-                p if isinstance(p, str) else getattr(p, "text", "")
-                for p in content
-            )
-        else:
-            text = content or ""
-        self._conversation_turns.append(("agent", text))
-
-        # Close session automatically if agent says goodbye
-        lower = text.lower()
-        if any(w in lower for w in ("goodbye", "take care", "bye", "farewell")):
-            logger.info("Goodbye detected — closing session in 5s — call_id=%s", self._call_id)
-            asyncio.create_task(self._close_after_delay(5.0))
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

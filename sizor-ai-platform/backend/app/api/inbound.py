@@ -182,6 +182,11 @@ async def verify_inbound_patient(
                 }
             )
 
+    day_in_recovery = (
+        (date.today() - patient.discharge_date).days
+        if patient.discharge_date else None
+    )
+
     patient_dict = {
         "patient_id": str(patient.patient_id),
         "full_name": patient.full_name,
@@ -190,6 +195,7 @@ async def verify_inbound_patient(
         "condition": patient.condition,
         "procedure": patient.procedure,
         "discharge_date": str(patient.discharge_date) if patient.discharge_date else None,
+        "day_in_recovery": day_in_recovery,
         "status": patient.status,
         "assigned_clinician_id": (
             str(patient.assigned_clinician_id) if patient.assigned_clinician_id else None
@@ -207,7 +213,113 @@ async def verify_inbound_patient(
     }
 
 
-# ── 2. Escalate patient ───────────────────────────────────────────────────────
+# ── 2. Verify by date of birth (fallback when NHS number fails) ───────────────
+
+@router.post("/api/patients/verify-dob")
+async def verify_inbound_patient_dob(
+    data: dict,
+    db: AsyncSession = Depends(get_db),
+    x_internal_key: str = Header(default=""),
+):
+    """
+    Body: { "nhs_number": "...", "date_of_birth": "YYYY-MM-DD" }
+
+    Fallback verification when the patient cannot provide their NHS number.
+    Looks up by NHS number (or name if provided) and checks date of birth.
+    Returns the same patient dict as verify-inbound on success.
+    """
+    _auth(x_internal_key)
+
+    import logging as _log
+    nhs_number = (data.get("nhs_number") or "").replace(" ", "").replace("-", "")
+    dob_raw = (data.get("date_of_birth") or "").strip()
+    full_name = (data.get("full_name") or "").strip()
+
+    if not dob_raw:
+        return {"verified": False, "reason": "Date of birth is required."}
+
+    # Normalise DOB to digits only for comparison (handles YYYY-MM-DD, DD/MM/YYYY etc.)
+    dob_digits = re.sub(r"\D", "", dob_raw)
+
+    # Find patient by NHS number first, fallback to name
+    patient = None
+    if nhs_number:
+        result = await db.execute(select(Patient).where(Patient.nhs_number == nhs_number))
+        patient = result.scalar_one_or_none()
+
+    if not patient and full_name:
+        result = await db.execute(select(Patient))
+        all_patients = result.scalars().all()
+        for p in all_patients:
+            if _fuzzy_match(full_name, p.full_name):
+                patient = p
+                break
+
+    if not patient:
+        return {"verified": False, "reason": "Could not find your records. Please contact your GP directly."}
+
+    # Compare DOB
+    expected_digits = re.sub(r"\D", "", str(patient.date_of_birth)) if patient.date_of_birth else ""
+    if not expected_digits or dob_digits != expected_digits:
+        _log.getLogger(__name__).warning(
+            "verify-dob: DOB mismatch for nhs=%r provided=%r expected_len=%d",
+            nhs_number, dob_raw, len(expected_digits),
+        )
+        return {"verified": False, "reason": "Date of birth does not match our records."}
+
+    # DOB matched — return same patient dict as verify-inbound
+    profile_result = await db.execute(
+        select(PatientMedicalProfile).where(PatientMedicalProfile.patient_id == patient.patient_id)
+    )
+    profile = profile_result.scalar_one_or_none()
+
+    calls_result = await db.execute(
+        select(CallRecord)
+        .where(CallRecord.patient_id == patient.patient_id)
+        .where(CallRecord.status == "completed")
+        .order_by(desc(CallRecord.started_at))
+        .limit(3)
+    )
+    recent_calls = calls_result.scalars().all()
+
+    recent_summaries: list[dict] = []
+    for call in recent_calls:
+        soap_result = await db.execute(select(SOAPNote).where(SOAPNote.call_id == call.call_id))
+        soap = soap_result.scalar_one_or_none()
+        if soap:
+            recent_summaries.append({
+                "call_id": str(call.call_id),
+                "generated_at": soap.generated_at.isoformat(),
+                "subjective": soap.subjective,
+                "assessment": soap.assessment,
+                "plan": soap.plan,
+            })
+
+    day_in_recovery = (
+        (date.today() - patient.discharge_date).days if patient.discharge_date else None
+    )
+
+    patient_dict = {
+        "patient_id": str(patient.patient_id),
+        "full_name": patient.full_name,
+        "nhs_number": patient.nhs_number,
+        "date_of_birth": str(patient.date_of_birth) if patient.date_of_birth else None,
+        "condition": patient.condition,
+        "procedure": patient.procedure,
+        "discharge_date": str(patient.discharge_date) if patient.discharge_date else None,
+        "day_in_recovery": day_in_recovery,
+        "status": patient.status,
+        "assigned_clinician_id": str(patient.assigned_clinician_id) if patient.assigned_clinician_id else None,
+        "current_medications": profile.current_medications if profile else [],
+        "allergies": profile.allergies if profile else [],
+        "primary_diagnosis": profile.primary_diagnosis if profile else None,
+        "secondary_diagnoses": profile.secondary_diagnoses if profile else [],
+    }
+
+    return {"verified": True, "patient": patient_dict, "recent_summaries": recent_summaries}
+
+
+# ── 3. Escalate patient ───────────────────────────────────────────────────────
 
 @router.post("/api/escalations/inbound")
 async def escalate_inbound_patient(
@@ -541,9 +653,10 @@ async def save_inbound_call(
         )
     ).scalar_one_or_none()
 
+    final_status = data.get("call_status") or ("missed" if not transcript and data.get("duration_seconds", 1) == 0 else "completed")
+
     if existing:
-        # Update the in-progress record to completed
-        existing.status = "completed"
+        existing.status = final_status
         existing.ended_at = datetime.now(timezone.utc)
         if transcript:
             existing.transcript_raw = transcript
@@ -557,7 +670,7 @@ async def save_inbound_call(
             direction=direction,
             trigger_type=data.get("trigger_type", "inbound_patient"),
             day_in_recovery=day,
-            status="completed",
+            status=final_status,
             duration_seconds=data.get("duration_seconds"),
             started_at=datetime.now(timezone.utc),
             ended_at=datetime.now(timezone.utc),

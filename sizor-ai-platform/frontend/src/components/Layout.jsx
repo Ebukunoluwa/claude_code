@@ -1,107 +1,137 @@
 import { useNavigate, useLocation } from "react-router-dom";
 import { logout } from "../api/auth";
+import { useTheme } from "../theme/ThemeContext";
 
-const NAV = [
-  {
-    id: "dashboard",
-    label: "Dashboard",
-    path: "/dashboard",
-    icon: (
-      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-      </svg>
-    ),
-  },
+const NAV_ITEMS = [
+  { label: "Ward Overview", path: "/dashboard" },
+  { label: "Patient Queue", path: "/patients" },
+  { label: "Alert Inbox",   path: "/alerts" },
+  { label: "Scheduler",     path: "/scheduler" },
+  { label: "Analytics",     path: "/analytics" },
 ];
 
-export default function Layout({ children, clinician }) {
-  const navigate = useNavigate();
-  const location = useLocation();
+export default function Layout({ children }) {
+  const { t, isDark, toggle } = useTheme();
+  const navigate  = useNavigate();
+  const location  = useLocation();
 
   function handleLogout() {
     logout();
     navigate("/login");
   }
 
-  const initials = clinician?.full_name
-    ? clinician.full_name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()
-    : "DR";
-
   return (
-    <div className="flex min-h-screen">
-      {/* Sidebar */}
-      <aside className="sidebar">
-        {/* Logo */}
-        <div className="px-5 py-5 border-b border-sidebar-border">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-gradient-blue flex items-center justify-center shrink-0">
-              <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18" />
-              </svg>
-            </div>
-            <div>
-              <div className="text-white font-bold text-sm leading-none">Sizor AI</div>
-              <div className="text-sidebar-text text-[10px] mt-0.5 leading-none">Clinical Platform</div>
-            </div>
+    <div style={{ minHeight: "100vh", background: t.bg, transition: "background 0.3s" }}>
+      {/* ── Top Nav ── */}
+      <nav style={{
+        height: 60,
+        background: t.nav,
+        borderBottom: "1px solid " + t.navBorder,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        padding: "0 28px",
+        position: "sticky",
+        top: 0,
+        zIndex: 100,
+        transition: "background 0.3s,border-color 0.3s",
+      }}>
+        {/* Left: logo + links */}
+        <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
+          {/* Logo */}
+          <div
+            style={{ display: "flex", alignItems: "center", gap: 9, cursor: "pointer" }}
+            onClick={() => navigate("/dashboard")}
+          >
+            <div style={{
+              width: 30, height: 30, borderRadius: 9,
+              background: "linear-gradient(135deg,#0AAFA8,#00E5C8)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 15, boxShadow: "0 0 20px #0AAFA840",
+            }}>◈</div>
+            <span style={{
+              fontFamily: "'Outfit',sans-serif", fontWeight: 900,
+              fontSize: 18, color: t.textPrimary, letterSpacing: "-0.5px",
+            }}>Sizor</span>
+            <span style={{
+              fontSize: 10, padding: "2px 7px", borderRadius: 100,
+              background: t.brandGlow, border: "1px solid " + t.brand + "40",
+              color: t.brand, fontFamily: "'DM Mono',monospace",
+            }}>BETA</span>
           </div>
-        </div>
 
-        {/* Nav */}
-        <nav className="flex-1 px-3 py-4 space-y-1">
-          <div className="text-[10px] font-semibold text-sidebar-text uppercase tracking-widest px-2 mb-2">
-            Navigation
-          </div>
-          {NAV.map((item) => {
-            const active = location.pathname === item.path;
+          {/* Divider */}
+          <div style={{ width: 1, height: 20, background: t.border }} />
+
+          {/* Nav links */}
+          {NAV_ITEMS.map(({ label, path }) => {
+            const active = location.pathname === path ||
+              (path === "/patients" && location.pathname.startsWith("/patients/"));
             return (
               <button
-                key={item.id}
-                onClick={() => navigate(item.path)}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
-                  active
-                    ? "bg-sidebar-active text-white"
-                    : "text-sidebar-text hover:bg-sidebar-hover hover:text-white"
-                }`}
+                key={path}
+                onClick={() => navigate(path)}
+                style={{
+                  background: "none", border: "none",
+                  fontFamily: "'Outfit',sans-serif", fontSize: 13,
+                  color: active ? t.brand : t.textMuted,
+                  cursor: "pointer", padding: "4px 0",
+                  borderBottom: active ? "1px solid " + t.brand : "1px solid transparent",
+                  transition: "color 0.15s",
+                }}
               >
-                {item.icon}
-                {item.label}
-                {active && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-nhs-blue-light" />}
+                {label}
               </button>
             );
           })}
-        </nav>
-
-        {/* Clinician info */}
-        <div className="px-3 py-4 border-t border-sidebar-border">
-          <div className="flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-sidebar-hover transition cursor-default">
-            <div className="w-8 h-8 rounded-full bg-gradient-blue flex items-center justify-center text-white text-xs font-bold shrink-0">
-              {initials}
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-white text-xs font-medium truncate">
-                {clinician?.full_name || "Clinician"}
-              </div>
-              <div className="text-sidebar-text text-[10px] capitalize">
-                {clinician?.role || "NHS Staff"}
-              </div>
-            </div>
-            <button
-              onClick={handleLogout}
-              title="Sign out"
-              className="text-sidebar-text hover:text-white transition"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-              </svg>
-            </button>
-          </div>
         </div>
-      </aside>
 
-      {/* Main */}
-      <div className="flex-1 flex flex-col min-w-0 bg-nhs-bg">
-        {children}
-      </div>
+        {/* Right: live badge + theme toggle + avatar/logout */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {/* Live indicator */}
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{
+              width: 7, height: 7, borderRadius: "50%",
+              background: t.green, display: "inline-block",
+              boxShadow: "0 0 8px " + t.green,
+              animation: "pulse 2s infinite",
+            }} />
+            <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 11, color: t.green }}>LIVE</span>
+          </div>
+
+          {/* Dark/light toggle */}
+          <button
+            onClick={toggle}
+            style={{
+              width: 36, height: 36, borderRadius: 10,
+              background: t.surfaceHigh, border: "1px solid " + t.border,
+              cursor: "pointer", fontSize: 17,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              transition: "all 0.2s", color: t.textSecond,
+            }}
+          >
+            {isDark ? "☀" : "☾"}
+          </button>
+
+          {/* Avatar / logout */}
+          <button
+            onClick={handleLogout}
+            title="Sign out"
+            style={{
+              width: 32, height: 32, borderRadius: "50%",
+              background: "linear-gradient(135deg,#0AAFA8,#076E69)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontFamily: "'Outfit',sans-serif", fontWeight: 700,
+              fontSize: 12, color: "#fff", border: "none", cursor: "pointer",
+            }}
+          >
+            DR
+          </button>
+        </div>
+      </nav>
+
+      {/* Page content */}
+      {children}
     </div>
   );
 }

@@ -75,6 +75,43 @@ NICE_GUIDELINES = {
             "mobility": {1: 4, 3: 5, 7: 6, 14: 7},
         },
     },
+    "Knee Replacement": {
+        "red_flags": [
+            "Sudden severe knee pain or giving way — possible implant failure — urgent orthopaedic review",
+            "Unilateral calf pain, swelling, or warmth — DVT risk — same-day urgent review",
+            "Acute shortness of breath post-surgery — PE risk — 999",
+            "Wound dehiscence, purulent discharge, or significantly increasing redness — urgent surgical review",
+            "Fever > 38.5°C beyond Day 3 — possible deep joint infection — urgent review",
+            "Complete loss of knee movement or inability to straight leg raise — urgent physiotherapy review",
+        ],
+        "medication_review_triggers": [
+            "VTE prophylaxis (LMWH or DOAC) — confirm adherence, typically 14 days post-discharge (NICE NG89)",
+            "Analgesia step-down from opioids — expected by Day 7",
+            "Regular paracetamol and NSAID use — review renal function if prolonged",
+            "Constipation management — laxatives alongside opioids",
+        ],
+        "readmission_risk_factors": [
+            "BMI > 40",
+            "Diabetes mellitus",
+            "Prior DVT/PE",
+            "Age > 75",
+            "Poor pain control leading to immobility and DVT risk",
+            "Poor social support for rehabilitation compliance",
+        ],
+        "follow_up_intervals": [
+            "Physiotherapy within 72 hours of discharge (NICE NG89)",
+            "Wound review at 10–14 days",
+            "Orthopaedic outpatient at 6 weeks",
+            "Knee flexion target: 90° by 2 weeks",
+        ],
+        "recovery_curves": {
+            "pain":          {1: 8, 3: 7, 5: 5, 7: 4, 10: 3, 14: 2, 21: 1},
+            "mobility":      {1: 8, 3: 7, 5: 5, 7: 4, 10: 3, 14: 2, 21: 1},
+            "breathlessness":{1: 3, 3: 2, 5: 2, 7: 1, 14: 1},
+            "appetite":      {1: 5, 3: 4, 5: 3, 7: 2, 14: 1},
+            "mood":          {1: 5, 3: 4, 5: 3, 7: 3, 14: 2},
+        },
+    },
     "Hip Replacement": {
         "red_flags": [
             "Sudden severe hip pain — possible dislocation — 999",
@@ -117,6 +154,8 @@ def get_guidelines_for_condition(condition: str) -> dict:
         return NICE_GUIDELINES["Heart Failure"]
     elif any(k in c for k in ["copd", "pulmonary", "respiratory", "obstructive"]):
         return NICE_GUIDELINES["COPD"]
-    elif any(k in c for k in ["hip", "replacement", "arthroplasty", "thr"]):
+    elif any(k in c for k in ["knee", "tkr", "tkrp", "total knee", "unicompartmental"]):
+        return NICE_GUIDELINES["Knee Replacement"]
+    elif any(k in c for k in ["hip", "thr", "arthroplasty"]):
         return NICE_GUIDELINES["Hip Replacement"]
     return {}

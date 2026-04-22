@@ -20,10 +20,15 @@ class Settings(BaseSettings):
     # ── Deepgram ─────────────────────────────────────────────────────────────
     deepgram_api_key: str = Field(..., description="Deepgram API key")
 
+    # ── Gradium (TTS) ────────────────────────────────────────────────────────
+    gradium_api_key: str = Field(default="", description="Gradium API key")
+    gradium_voice_id: str = Field(default="", description="Gradium voice ID")
+    gradium_model_endpoint: str = Field(default="wss://eu.api.gradium.ai/api/speech/tts", description="Gradium model endpoint")
+
     # ── Cartesia ─────────────────────────────────────────────────────────────
     cartesia_api_key: str = Field(..., description="Cartesia API key")
     cartesia_voice_id: str = Field(
-        default="ee7ea9f8-c0c1-498c-9279-764d6b56d189",
+        default="62ae83ad-4f6a-430b-af41-a9bede9286ca",
         description="Cartesia voice ID (British English)",
     )
 

@@ -1,14 +1,32 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&family=DM+Mono:ital,wght@0,400;0,500;1,400&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 body {
-  background-color: #f1f5f9;
-  color: #0f172a;
-  font-family: 'Inter', 'Arial', sans-serif;
+  background-color: #0B0D11;
+  color: #F0F2F7;
+  font-family: 'Outfit', 'Arial', sans-serif;
   -webkit-font-smoothing: antialiased;
+}
+
+/* Design system animations */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.3; }
+}
+@keyframes scroll {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
 }
 
 /* Scrollbar */
@@ -29,7 +47,8 @@ body {
 
 /* Form input base */
 .input {
-  @apply w-full px-3 py-2 text-sm border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-nhs-blue/20 focus:border-nhs-blue transition;
+  @apply w-full px-3 py-2 text-sm border border-gray-200 rounded-xl bg-white text-gray-900
+    placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-nhs-blue/20 focus:border-nhs-blue transition;
 }
 
 /* Card hover lift */
