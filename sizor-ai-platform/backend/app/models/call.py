@@ -49,6 +49,10 @@ class ClinicalExtraction(Base):
     medication_adherence: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     condition_specific_flags: Mapped[dict] = mapped_column(JSONB, default=dict)
     raw_extraction_json: Mapped[dict] = mapped_column(JSONB, default=dict)
+    # Scoring additions (smoothing + risk score):
+    smoothed_scores: Mapped[dict] = mapped_column(JSONB, default=dict)
+    risk_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    risk_score_breakdown: Mapped[dict] = mapped_column(JSONB, default=dict)
 
     call = relationship("CallRecord", back_populates="extraction")
 
