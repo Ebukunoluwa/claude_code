@@ -23,6 +23,7 @@ from ..services.post_call_pipeline import (
     evaluate_flags, generate_longitudinal_summary,
 )
 from ..services.ftp_service import compute_ftp
+from ..clinical.risk_score import compute_risk_score, breakdown_to_dict
 
 
 def _get_session():
@@ -52,9 +53,33 @@ def process_call(call_id: str):
             transcript = call.transcript_raw or ""
             day = call.day_in_recovery or 1
 
+            if call.status in ("missed", "no_answer"):
+                logger.warning("Call %s has status '%s' — skipping pipeline", call_id, call.status)
+                return
+
             if not transcript.strip():
                 logger.warning("Empty transcript for call %s — skipping pipeline", call_id)
                 return
+
+            # Voicemail detection: if the transcript is dominated by answerphone system
+            # prompts with no real patient interaction, skip scoring entirely.
+            _patient_lines = [l for l in transcript.splitlines() if l.startswith("[PATIENT]")]
+            _voicemail_phrases = (
+                "press one", "press two", "press three", "press four", "press five",
+                "press hash", "leave a message", "after the tone", "you've recorded",
+                "your message has been", "listen back", "to rerecord", "hang up",
+                "another line", "leave your message", "confidentiality settings",
+            )
+            if _patient_lines:
+                _vm_count = sum(
+                    1 for l in _patient_lines
+                    if any(p in l.lower() for p in _voicemail_phrases)
+                )
+                _is_voicemail = _vm_count / len(_patient_lines) >= 0.6
+                if _is_voicemail:
+                    logger.warning("Call %s appears to be a voicemail (%d/%d lines match) — skipping clinical pipeline",
+                                   call_id, _vm_count, len(_patient_lines))
+                    return
 
             # Fetch pathway domains so extraction captures 0-4 domain scores
             from ..clinical.pathway_map import OPCS_TO_NICE_MAP
@@ -76,6 +101,99 @@ def process_call(call_id: str):
             except Exception as exc:
                 logger.error("Score extraction failed for call %s: %s", call_id, exc, exc_info=True)
                 scores_raw = {}
+
+            # ── Domain → generic score bridge ───────────────────────────────
+            # Pathway-specific calls (e.g. R18, W37) collect domain scores on a
+            # 0-4 scale rather than the generic 0-10 channels.  If the 0-10
+            # generic fields are null after extraction, derive them from the
+            # domain scores so the EWMA smoothing and risk-score computation
+            # have meaningful inputs.  Scale: 0-4 × 2.5 = 0-10.
+            #
+            # Domain score carry-forward: domains not discussed in this call
+            # keep their last known score from the prior extraction. This prevents
+            # a call that only covers some domains from wiping out scores for
+            # domains that weren't touched in this session.
+            _prior_domain_scores: dict = {}
+            try:
+                _prior_ext_for_domains = await db.execute(
+                    select(ClinicalExtraction)
+                    .where(
+                        ClinicalExtraction.patient_id == call.patient_id,
+                        ClinicalExtraction.call_id != call.call_id,
+                    )
+                    .order_by(ClinicalExtraction.extracted_at.desc())
+                    .limit(1)
+                )
+                _prior_ext_row = _prior_ext_for_domains.scalar_one_or_none()
+                if _prior_ext_row and _prior_ext_row.condition_specific_flags:
+                    _prior_domain_scores = (
+                        (_prior_ext_row.condition_specific_flags or {}).get("domain_scores") or {}
+                    )
+            except Exception:
+                pass
+
+            # Current call's domain scores — only covers domains the LLM saw evidence for
+            _current_domain_scores: dict = (
+                (scores_raw.get("condition_specific_flags") or {}).get("domain_scores") or {}
+            )
+
+            # Merge: prior scores as baseline, current call scores override where present
+            _domain_scores: dict = {**_prior_domain_scores, **_current_domain_scores}
+
+            # Write the merged set back into scores_raw so it's persisted
+            if _domain_scores:
+                if "condition_specific_flags" not in scores_raw or scores_raw["condition_specific_flags"] is None:
+                    scores_raw["condition_specific_flags"] = {}
+                scores_raw["condition_specific_flags"]["domain_scores"] = _domain_scores
+
+            if _domain_scores:
+                def _d2t(keys: list[str], invert: bool = False):
+                    """Return 0-10 from the first matching domain key (0-4 × 2.5)."""
+                    for k in keys:
+                        v = _domain_scores.get(k)
+                        if v is not None:
+                            scaled = float(v) * 2.5
+                            return round((10.0 - scaled) if invert else scaled, 1)
+                    return None
+
+                if scores_raw.get("pain_score") is None:
+                    b = _d2t(["pain_management", "pain", "wound_healing_pfannenstiel",
+                               "wound_healing", "headache", "chest_pain_monitoring"])
+                    if b is not None:
+                        scores_raw["pain_score"] = b
+
+                if scores_raw.get("breathlessness_score") is None:
+                    b = _d2t(["breathlessness", "breathlessness_and_cough",
+                               "oxygen_saturation", "breathlessness_recovery"])
+                    if b is not None:
+                        scores_raw["breathlessness_score"] = b
+
+                if scores_raw.get("mobility_score") is None:
+                    b = _d2t(["mobility_progress", "mobility", "mobility_and_rehabilitation",
+                               "falls_risk"])
+                    if b is not None:
+                        scores_raw["mobility_score"] = b
+
+                if scores_raw.get("appetite_score") is None:
+                    b = _d2t(["appetite", "nutrition", "swallowing_and_nutrition",
+                               "fatigue_and_recovery", "fatigue_and_functional_recovery"])
+                    if b is not None:
+                        scores_raw["appetite_score"] = b
+
+                # Mood is inverted: domain 0 = no problem (good mood), 4 = severe (bad mood).
+                # Map to generic mood_score where 10 = great, 0 = terrible.
+                if scores_raw.get("mood_score") is None:
+                    b = _d2t(
+                        ["postnatal_depression_screen", "postnatal_mood", "mood",
+                         "mood_and_depression", "mood_and_anxiety", "mood_screen",
+                         "emotional_processing_of_birth", "emotional_recovery",
+                         "psychological_impact", "safety_and_suicidality"],
+                        invert=True,
+                    )
+                    if b is not None:
+                        scores_raw["mood_score"] = b
+            # ────────────────────────────────────────────────────────────────
+
             # Upsert: update existing extraction if one already exists for this call
             existing_ext = await db.execute(
                 select(ClinicalExtraction).where(ClinicalExtraction.call_id == call.call_id)
@@ -179,12 +297,43 @@ def process_call(call_id: str):
             )
             db.add(ftp)
 
-            # Task 4: Evaluate flags
+            # Task 4: Evaluate flags + compute smoothed scores + risk score
+            # Load prior ClinicalExtraction for this patient (excluding current call)
+            # to drive EWMA smoothing across calls.
+            prior_smoothed: dict | None = None
             try:
-                flags = await evaluate_flags(scores_raw, ftp_status, day)
+                prior_ext_result = await db.execute(
+                    select(ClinicalExtraction)
+                    .where(
+                        ClinicalExtraction.patient_id == call.patient_id,
+                        ClinicalExtraction.call_id != call.call_id,
+                    )
+                    .order_by(ClinicalExtraction.extracted_at.desc())
+                    .limit(1)
+                )
+                prior_ext = prior_ext_result.scalar_one_or_none()
+                if prior_ext and prior_ext.smoothed_scores:
+                    prior_smoothed = prior_ext.smoothed_scores
+            except Exception as exc:
+                logger.warning(
+                    "Could not load prior smoothed state for patient %s: %s",
+                    call.patient_id, exc,
+                )
+
+            # TODO: drive `critical_medication` from Patient/medication model once
+            # medication criticality is represented. For now: conservative default.
+            critical_medication = False
+
+            try:
+                flags, smoothed_state = await evaluate_flags(
+                    scores_raw, ftp_status, day,
+                    prior_smoothed=prior_smoothed,
+                    critical_medication=critical_medication,
+                )
             except Exception as exc:
                 logger.error("Flag evaluation failed for call %s: %s", call_id, exc, exc_info=True)
-                flags = []
+                flags, smoothed_state = [], {}
+
             for flag in flags:
                 db.add(UrgencyFlag(
                     patient_id=call.patient_id,
@@ -193,6 +342,53 @@ def process_call(call_id: str):
                     flag_type=flag["flag_type"],
                     trigger_description=flag["trigger_description"],
                 ))
+
+            # Compute 0-100 risk score from smoothed state + context.
+            # Populates extraction.risk_score for the dashboard to read.
+            try:
+                has_red_flag = any(f["severity"] == "red" for f in flags)
+                from ..clinical.smoothing import SmoothedScores
+                smoothed_obj = SmoothedScores(
+                    pain=smoothed_state.get("pain"),
+                    breathlessness=smoothed_state.get("breathlessness"),
+                    mobility=smoothed_state.get("mobility"),
+                    appetite=smoothed_state.get("appetite"),
+                    mood=smoothed_state.get("mood"),
+                    max_smoothed=max(
+                        (v for v in (
+                            smoothed_state.get("pain"),
+                            smoothed_state.get("breathlessness"),
+                            smoothed_state.get("mobility"),
+                            smoothed_state.get("appetite"),
+                        ) if v is not None),
+                        default=0.0,
+                    ),
+                    modifier_total=smoothed_state.get("modifier_total", 0.0),
+                    modifier_detail=smoothed_state.get("modifier_detail", {}),
+                    lam=smoothed_state.get("lam", 0.3),
+                )
+                breakdown = compute_risk_score(
+                    smoothed_obj,
+                    ftp_status=ftp_status,
+                    day_in_recovery=day,
+                    has_active_red_flag=has_red_flag,
+                    raw_pain=scores_raw.get("pain_score"),
+                    raw_breathlessness=scores_raw.get("breathlessness_score"),
+                )
+                extraction.smoothed_scores = smoothed_state
+                extraction.risk_score = breakdown.final_score
+                bd_dict = breakdown_to_dict(breakdown)
+                # Embed domain scores so the frontend WHY panel can display them
+                # even when generic weighted contributions are also present.
+                if _domain_scores:
+                    bd_dict["domain_scores"] = _domain_scores
+                extraction.risk_score_breakdown = bd_dict
+            except Exception as exc:
+                logger.error(
+                    "Risk score computation failed for call %s: %s",
+                    call_id, exc, exc_info=True,
+                )
+                # Leave fields at DB defaults. Do not fail the pipeline.
 
             # Task 5: Longitudinal summary
             prev_result = await db.execute(

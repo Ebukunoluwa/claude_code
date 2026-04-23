@@ -207,7 +207,7 @@ async def get_call_context(
     red_flags = []
 
     pw_row = await db.execute(text("""
-        SELECT opcs_code, playbook, risk_flags, clinical_red_flags
+        SELECT opcs_code, playbook, domains, risk_flags, clinical_red_flags
         FROM patient_pathways
         WHERE patient_id = :pid AND active = true
         LIMIT 1
@@ -215,6 +215,7 @@ async def get_call_context(
     pw = pw_row.mappings().first()
 
     risk_flags = []
+    custom_domains = []
     if pw:
         opcs_code = pw["opcs_code"]
         pw_meta = OPCS_TO_NICE_MAP.get(opcs_code, {})
@@ -222,13 +223,28 @@ async def get_call_context(
         # Use clinician-customised red flags if set, else fall back to pathway map defaults
         red_flags = pw["clinical_red_flags"] or pw_meta.get("red_flags", [])
         risk_flags = pw["risk_flags"] or []
+        # Respect clinician-customised domain list; fall back to pathway map
+        custom_domains = pw["domains"] or pw_meta.get("monitoring_domains", [])
 
         if pw["playbook"] and day_in_recovery is not None:
             playbook = pw["playbook"]
             day_keys = sorted(int(k) for k in playbook.keys())
             if day_keys:
                 closest = min(day_keys, key=lambda d: abs(d - day_in_recovery))
-                playbook_for_day = playbook.get(str(closest))
+                playbook_for_day = playbook.get(str(closest)) or {}
+
+        # ALWAYS guarantee a non-null playbook when a pathway is registered.
+        # Fill any domain missing from the stored playbook with a template so
+        # the voice agent NEVER falls back to the generic assessment script.
+        from ..clinical.playbook import _make_template
+        playbook_for_day = playbook_for_day or {}
+        for _dom in custom_domains:
+            if _dom not in playbook_for_day:
+                playbook_for_day[_dom] = _make_template(_dom)
+        # If still empty (no domains at all configured), add a single catch-all
+        # so build_system_prompt always receives a truthy playbook dict.
+        if not playbook_for_day:
+            playbook_for_day = {"general_recovery": _make_template("general recovery")}
 
     # ── Medical profile (medications, allergies) ─────────────────────────────
     profile_result = await db.execute(
@@ -338,7 +354,8 @@ async def get_call_context(
             call_summaries.append(summary)
 
     # Build domain priority list: above-expected domains first, then by score desc
-    all_pathway_domains = OPCS_TO_NICE_MAP.get(opcs_code or "", {}).get("monitoring_domains", [])
+    # Use the clinician-customised domain list if set, else the pathway map default
+    all_pathway_domains = custom_domains or OPCS_TO_NICE_MAP.get(opcs_code or "", {}).get("monitoring_domains", [])
     domain_priority = []
     for domain in all_pathway_domains:
         if domain in domain_latest:

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { getDashboard } from "../api/decisions";
 import { createProbeCall } from "../api/probe_calls";
 import { useTheme } from "../theme/ThemeContext";
@@ -29,6 +29,7 @@ function ragToScore(sev, id) {
 export default function SchedulerPage() {
   const { t } = useTheme();
   const location = useLocation();
+  const navigate = useNavigate();
   const lockedPatient = location.state?.patient || null;
 
   const [patients, setPatients]   = useState([]);
@@ -53,7 +54,7 @@ export default function SchedulerPage() {
           ward:    p.condition || "General",
           pathway: p.condition || "General",
           rag:     toRag(p.urgency_severity),
-          score:   ragToScore(p.urgency_severity, p.patient_id),
+          score:   p.risk_score ?? ragToScore(p.urgency_severity, p.patient_id),
         }));
         setPatients(mapped);
         // Only auto-select first patient if no locked patient from navigation
@@ -86,7 +87,7 @@ export default function SchedulerPage() {
     ? (customDate && customTime ? `${customDate} at ${customTime}` : "Custom (incomplete)")
     : SLOTS.find(s => s.value === selSlot)?.label || selSlot;
 
-  const canSchedule = selP && !submitting && resolvedSlot;
+  const canSchedule = selP && !submitting && resolvedSlot && notes.trim();
 
   async function handleSchedule() {
     if (!canSchedule) return;
@@ -95,14 +96,13 @@ export default function SchedulerPage() {
       await createProbeCall({
         patient_id: selP.id,
         slot: resolvedSlot,
-        note: notes.trim() || undefined,
+        note: notes.trim(),
       });
     } catch {
       // show success optimistically — call was queued
     }
-    setCallQueue(prev => [{ id:"S-"+(prev.length+1), patient:selP.name, slot:slotLabel, rag:selP.rag }, ...prev].slice(0, 5));
     setSuccess(true);
-    setTimeout(() => setSuccess(false), 3500);
+    setTimeout(() => navigate("/dashboard"), 1500);
     setSubmitting(false);
   }
 
@@ -272,8 +272,8 @@ export default function SchedulerPage() {
 
             {/* Step 3 — Notes */}
             <div style={{ background:t.surface, border:"1px solid "+t.border, borderRadius:"18px", padding:"24px", boxShadow:"0 2px 12px "+t.shadow }}>
-              <div style={{ fontFamily:"'DM Mono',monospace", fontSize:"10px", color:t.textMuted, letterSpacing:"1.5px", marginBottom:"16px" }}>STEP 3 · CALL NOTES (OPTIONAL)</div>
-              <textarea value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Clinical context for the AI call agent — e.g. 'Patient reported wound pain on last call, follow up on dressing change'..." rows={4}
+              <div style={{ fontFamily:"'DM Mono',monospace", fontSize:"10px", color:t.textMuted, letterSpacing:"1.5px", marginBottom:"16px" }}>STEP 3 · CALL NOTES <span style={{ color:t.red }}>*</span></div>
+              <textarea value={notes} onChange={e=>setNotes(e.target.value)} placeholder="What should Sarah ask the patient? e.g. 'Patient reported wound pain on last call — check if still painful and whether they have changed the dressing'" rows={4}
                 style={{ width:"100%", padding:"12px 16px", borderRadius:"10px", background:t.bg, border:"1px solid "+t.border, fontFamily:"'Outfit',sans-serif", fontSize:"13px", color:t.textPrimary, resize:"none", lineHeight:1.6, outline:"none", boxSizing:"border-box" }}/>
             </div>
 

@@ -3,6 +3,7 @@
  * Rendered by /scheduler route. Wired to src/api/probe_calls.js.
  */
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { createProbeCall } from "../api/probe_calls";
 import { getDashboard } from "../api/decisions";
 import { useTheme } from "../theme/ThemeContext";
@@ -33,6 +34,7 @@ const REASONS = [
 
 export default function ProbeCallPanel() {
   const { t } = useTheme();
+  const navigate = useNavigate();
 
   /* Patient list */
   const [patients, setPatients]     = useState([]);
@@ -100,6 +102,7 @@ export default function ProbeCallPanel() {
 
   async function handleSchedule() {
     if (!selP) return;
+    if (!notes.trim()) { setError("Call notes are required — describe what Sarah should ask the patient."); return; }
     setSubmitting(true);
     setError("");
     try {
@@ -122,7 +125,7 @@ export default function ProbeCallPanel() {
       });
       setSuccess(true);
       setNotes("");
-      setTimeout(() => setSuccess(false), 3500);
+      setTimeout(() => navigate("/"), 1500);
     } catch (e) {
       setError(e?.response?.data?.detail || "Failed to schedule probe call.");
     } finally {
@@ -143,19 +146,27 @@ export default function ProbeCallPanel() {
           </h1>
         </div>
 
-        {/* Success banner */}
-        {success && (
-          <div style={{ padding: "14px 20px", borderRadius: 12, background: t.greenBg, border: "1px solid " + t.greenBorder, marginBottom: 20, display: "flex", alignItems: "center", gap: 12 }}>
-            <span style={{ color: t.green, fontSize: 18 }}>✓</span>
-            <span style={{ fontFamily: "'Outfit',sans-serif", fontSize: 14, color: t.green, fontWeight: 600 }}>
-              Probe call scheduled — Sizor will call {selP?.patient_name} at {selTime}
-            </span>
-          </div>
-        )}
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 330px", gap: 20 }}>
-          {/* ── Left column: 3-step form ── */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          {/* ── Left column: 3-step form (hidden after success) ── */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>{success ? (
+            <div style={{ background: t.surface, border: "1px solid " + t.border, borderRadius: 16, padding: 32, boxShadow: "0 2px 12px " + t.shadow, display: "flex", flexDirection: "column", gap: 16 }}>
+              <div style={{ fontFamily: "'DM Mono',monospace", fontSize: 10, color: t.green, letterSpacing: "2px" }}>SCHEDULED SUCCESSFULLY</div>
+              <div style={{ fontFamily: "'Outfit',sans-serif", fontSize: 18, fontWeight: 800, color: t.textPrimary }}>
+                Probe call queued for {selP?.patient_name}
+              </div>
+              <div style={{ fontFamily: "'Outfit',sans-serif", fontSize: 13, color: t.textSecond, lineHeight: 1.6 }}>
+                Sarah will call at <strong>{selTime}</strong> · {selDate === "today" ? "Today" : selDate === "tomorrow" ? "Tomorrow" : customDate}<br/>
+                Reason: <strong>{selReason}</strong>
+              </div>
+              <button
+                onClick={() => { setSuccess(false); setNotes(""); }}
+                style={{ alignSelf: "flex-start", marginTop: 8, padding: "10px 20px", borderRadius: 10, background: t.brandGlow, border: "1px solid " + t.brand + "40", color: t.brand, fontFamily: "'Outfit',sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer" }}
+              >
+                Schedule another call
+              </button>
+            </div>
+          ) : (<>
 
             {/* Step 1 — Select patient */}
             <div style={{ background: t.surface, border: "1px solid " + t.border, borderRadius: 16, padding: 22, boxShadow: "0 2px 12px " + t.shadow }}>
@@ -241,7 +252,7 @@ export default function ProbeCallPanel() {
 
             {/* Step 3 — Reason & notes */}
             <div style={{ background: t.surface, border: "1px solid " + t.border, borderRadius: 16, padding: 22, boxShadow: "0 2px 12px " + t.shadow }}>
-              <div style={{ fontFamily: "'DM Mono',monospace", fontSize: 10, color: t.textMuted, letterSpacing: "1.5px", marginBottom: 14 }}>STEP 3 · REASON & NOTES</div>
+              <div style={{ fontFamily: "'DM Mono',monospace", fontSize: 10, color: t.textMuted, letterSpacing: "1.5px", marginBottom: 14 }}>STEP 3 · CALL NOTES <span style={{ color: t.red }}>*</span></div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 7, marginBottom: 14 }}>
                 {REASONS.map((r) => (
                   <button
@@ -254,7 +265,7 @@ export default function ProbeCallPanel() {
               <textarea
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                placeholder="Additional context for AI agent (optional)…"
+                placeholder="What should Sarah ask the patient? e.g. 'Check how the wound is healing and whether they are taking their antibiotics'"
                 rows={3}
                 style={{ width: "100%", padding: "11px 14px", borderRadius: 9, background: t.bg, border: "1px solid " + t.border, fontFamily: "'Outfit',sans-serif", fontSize: 13, color: t.textPrimary, resize: "none", lineHeight: 1.6, outline: "none", boxSizing: "border-box" }}
               />
@@ -275,6 +286,7 @@ export default function ProbeCallPanel() {
             >
               {submitting ? "Scheduling…" : `◎  Schedule Probe Call${selP ? " for " + selP.patient_name : ""}`}
             </button>
+          </>) /* end success ? ... : <> form </> */}
           </div>
 
           {/* ── Right column: call preview + queue ── */}

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import client from "../api/client";
 import { getWards } from "../api/patients";
 import { useTheme } from "../theme/ThemeContext";
@@ -66,13 +66,13 @@ const PATHWAYS = [
     value: "Elective caesarean section", opcs: "R17", label: "Elective C-Section", icon: "👶", category: "Obstetric", ward: "Maternity & Gynaecology Ward",
     call_days: [1, 3, 5, 7, 10, 14, 21, 28],
     red_flags: ["Wound dehiscence", "Postpartum haemorrhage", "PE symptoms", "Pre-eclampsia signs", "Severe postnatal depression", "Infant feeding failure"],
-    monitor: ["Wound healing (Pfannenstiel)", "Pain management", "Lochia pattern", "LMWH adherence", "Postnatal depression screen", "Breastfeeding support"],
+    monitor: ["Wound healing (Pfannenstiel)", "Pain management", "Lochia pattern", "LMWH adherence", "Postnatal depression screen", "Mobility progress", "Breastfeeding support"],
   },
   {
     value: "Emergency caesarean section", opcs: "R18", label: "Emergency C-Section", icon: "👶", category: "Obstetric", ward: "Maternity & Gynaecology Ward",
     call_days: [1, 3, 5, 7, 10, 14, 21, 28],
     red_flags: ["Wound dehiscence", "Postpartum haemorrhage", "PE symptoms", "Pre-eclampsia signs", "Severe postnatal depression", "PTSD symptoms"],
-    monitor: ["Wound healing (Pfannenstiel)", "Pain management", "Lochia pattern", "LMWH adherence", "Postnatal depression screen", "PTSD screening", "Emotional processing of birth"],
+    monitor: ["Wound healing (Pfannenstiel)", "Pain management", "Lochia pattern", "LMWH adherence", "Postnatal depression screen", "Mobility progress", "Breastfeeding support", "PTSD screening", "Emotional processing of birth"],
   },
   {
     value: "Hysterectomy", opcs: "Q07", label: "Hysterectomy", icon: "🏥", category: "Obstetric", ward: "Maternity & Gynaecology Ward",
@@ -186,6 +186,7 @@ export default function AddPatientModal({ clinician, onClose, onAdded }) {
   const [monitorItems, setMonitorItems] = useState({});
   const [newMonitor, setNewMonitor] = useState("");
   const [wards, setWards] = useState([]);
+  const formBodyRef = useRef(null);
 
   useEffect(() => {
     getWards().then(setWards).catch(() => {});
@@ -233,8 +234,37 @@ export default function AddPatientModal({ clinician, onClose, onAdded }) {
     });
   }
 
+  function showError(msg) {
+    setError(msg);
+    // Scroll form body to top so the error banner is visible
+    if (formBodyRef.current) {
+      formBodyRef.current.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }
+
   async function handleSubmit(e) {
     e.preventDefault();
+    // Client-side validation — the footer button is outside the <form> so
+    // HTML `required` attributes are never triggered; we enforce them here.
+    if (!form.full_name.trim()) return showError("Full name is required.");
+    if (!form.nhs_number.trim()) return showError("NHS number is required.");
+    if (!form.phone_number.trim()) return showError("Phone number is required.");
+    // Warn if number looks local (missing country code) — UK local is auto-corrected
+    // by the voice agent, but ambiguous international numbers will fail silently.
+    const rawPhone = form.phone_number.trim();
+    const digitsOnly = rawPhone.replace(/[\s\-().]/g, "");
+    if (!digitsOnly.startsWith("+") && !digitsOnly.startsWith("00")) {
+      if (!/^0[127]\d{9}$/.test(digitsOnly)) {
+        return showError(
+          "Phone number must be in international format, e.g. +2348012345678 for Nigeria or +447700900123 for UK. " +
+          "Local formats without a country code may not connect."
+        );
+      }
+    }
+    if (!form.ward_id) return showError("Please select a ward.");
+    if (selectedPathway && !form.discharge_date) return showError("Discharge date is required when a pathway is selected.");
+    if (form.schedule_date && !form.schedule_time) return showError("Please set a time for the scheduled call.");
+
     setError(""); setSaving(true);
     try {
       let patientId;
@@ -304,11 +334,15 @@ export default function AddPatientModal({ clinician, onClose, onAdded }) {
       onAdded?.(); onClose();
     } catch (err) {
       const detail = err.response?.data?.detail;
-      const msg = Array.isArray(detail)
+      let msg = Array.isArray(detail)
         ? detail.map((e) => e.msg || JSON.stringify(e)).join("; ")
         : typeof detail === "string" ? detail
         : err.message || "Failed to add patient.";
-      setError(msg);
+      // Friendlier message for duplicate NHS numbers
+      if (msg.includes("unique") || msg.includes("duplicate") || msg.includes("UniqueViolation")) {
+        msg = `A patient with NHS number "${form.nhs_number.trim()}" already exists.`;
+      }
+      showError(msg);
     } finally {
       setSaving(false);
     }
@@ -362,7 +396,7 @@ export default function AddPatientModal({ clinician, onClose, onAdded }) {
         </div>
 
         {/* Body */}
-        <form onSubmit={handleSubmit} style={{ overflowY: "auto", flex: 1, padding: "20px 24px", display: "flex", flexDirection: "column", gap: "20px" }}>
+        <form ref={formBodyRef} onSubmit={handleSubmit} style={{ overflowY: "auto", flex: 1, padding: "20px 24px", display: "flex", flexDirection: "column", gap: "20px" }}>
 
           {error && (
             <div style={{ background: t.redBg, border: `1px solid ${t.redBorder}`, color: t.red,
@@ -622,7 +656,16 @@ export default function AddPatientModal({ clinician, onClose, onAdded }) {
 
         {/* Footer */}
         <div style={{ padding: "14px 24px", borderTop: `1px solid ${t.border}`,
-          display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "12px" }}>
+          display: "flex", flexDirection: "column", gap: "10px" }}>
+          {error && (
+            <div style={{
+              background: t.redBg, border: `1px solid ${t.redBorder}`, color: t.red,
+              fontSize: "12px", padding: "8px 14px", borderRadius: "8px",
+            }}>
+              {error}
+            </div>
+          )}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "12px" }}>
           <button type="button" onClick={onClose} style={{
             padding: "8px 16px", fontSize: "13px", fontWeight: 500,
             background: "none", border: "none", cursor: "pointer",
@@ -646,6 +689,7 @@ export default function AddPatientModal({ clinician, onClose, onAdded }) {
             )}
             {saving ? "Saving…" : "Add Patient"}
           </button>
+          </div>
         </div>
 
       </div>

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
-import { getPatient, getPatientCalls, getPatientTrends, getPatientNotes, actionNote, updatePatient, updateProfile, updatePathway, getPatientPathwayDetails } from "../api/patients";
+import { getPatient, getPatientCalls, getPatientTrends, getPatientNotes, actionNote, updatePatient, updateProfile, updatePathway, getPatientPathwayDetails, getPatientRiskHistory } from "../api/patients";
 import { getCall } from "../api/calls";
 import { useTheme } from "../theme/ThemeContext";
 import { ragCfg } from "../theme/tokens";
@@ -14,6 +14,7 @@ function toRag(sev) {
   if (sev === "amber") return "AMBER";
   return "GREEN";
 }
+
 
 function formatDate(iso) {
   if (!iso) return "—";
@@ -193,6 +194,8 @@ export default function PatientDetailPage() {
   const [callPage, setCallPage]         = useState(0);    // 5 per page
   const [trajectory, setTrajectory]     = useState(null);
   const [trends, setTrends]             = useState(null);
+  const [riskHistory, setRiskHistory]   = useState([]);
+  const [showRiskBreakdown, setShowRiskBreakdown] = useState(false);
   const [loading, setLoading]           = useState(true);
   const [actionBusy, setActionBusy]     = useState(null);
   const [actionMsg, setActionMsg]       = useState("");
@@ -253,8 +256,10 @@ export default function PatientDetailPage() {
           nurse:           "—",
           daysAdmitted:    patientData.day_in_recovery ?? 0,
           rag:             toRag(patientData.urgency_severity),
-          score:           patientData.urgency_severity === "red" ? 82 : patientData.urgency_severity === "amber" ? 52 : 24,
-          delta:           patientData.urgency_severity === "red" ? +8 : -5,
+          score:           patientData.risk_score != null ? Math.round(patientData.risk_score) : null,
+          delta:           patientData.risk_score_delta != null ? Math.round(patientData.risk_score_delta) : null,
+          riskScoreBreakdown: patientData.risk_score_breakdown ?? null,
+          domainScores:      patientData.domain_scores ?? null,
           flag:            patientData.urgency_severity !== "green"
                              ? (patientData.urgency_severity === "red" ? "Red flag — review required" : "Amber watch — monitoring")
                              : null,
@@ -292,11 +297,15 @@ export default function PatientDetailPage() {
           setEditDomains(pathDetails.domains || []);
         }
 
-        // 5. Trend data for trajectory chart
-        const trendData = await getPatientTrends(pid).catch(() => null);
+        // 5. Trend data for trajectory chart + risk score history
+        const [trendData, riskHist] = await Promise.all([
+          getPatientTrends(pid).catch(() => null),
+          getPatientRiskHistory(pid).catch(() => []),
+        ]);
         const daysAdmitted = patientData.day_in_recovery ?? 0;
         const rag = toRag(patientData.urgency_severity);
         setTrends(trendData);
+        setRiskHistory(Array.isArray(riskHist) ? riskHist : []);
         setTrajectory(buildFallbackTrajectory(daysAdmitted, rag));
 
       } catch (err) {
@@ -337,8 +346,9 @@ export default function PatientDetailPage() {
 
   const p   = patient;
   const cfg = ragCfg(t, p.rag || "GREEN");
-  const score = p.score || 0;
-  const delta = p.delta || 0;
+  const score = p.score ?? null;   // null until first completed call with data
+  const hasRealScore = score != null;
+  const delta = p.delta ?? null;
   const traj = trajectory || buildFallbackTrajectory(p.daysAdmitted || 0, p.rag || "GREEN");
   const hasTrends = trends && Object.values(trends).some(d => d.actual && d.actual.length > 0);
 
@@ -395,18 +405,104 @@ export default function PatientDetailPage() {
 
             {/* Risk score */}
             <div style={{ background:t.surface, border:"1px solid "+t.border, borderRadius:"18px", padding:"24px", boxShadow:"0 2px 12px "+t.shadow }}>
-              <div style={{ fontFamily:"'DM Mono',monospace", fontSize:"10px", color:t.textMuted, letterSpacing:"1.5px", marginBottom:"12px" }}>CURRENT RISK SCORE</div>
-              <div style={{ display:"flex", alignItems:"baseline", gap:"12px" }}>
-                <span style={{ fontFamily:"'Outfit',sans-serif", fontSize:"56px", fontWeight:900, color:cfg.text, lineHeight:1, letterSpacing:"-2px" }}>{score}</span>
-                <span style={{ fontFamily:"'DM Mono',monospace", fontSize:"14px", color:delta > 0 ? t.red : t.green }}>{delta > 0 ? "▲" : "▼"} {Math.abs(delta)} since yesterday</span>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"12px" }}>
+                <div style={{ fontFamily:"'DM Mono',monospace", fontSize:"10px", color:t.textMuted, letterSpacing:"1.5px" }}>CURRENT RISK SCORE</div>
+                {p.riskScoreBreakdown && (
+                  <button
+                    type="button"
+                    onClick={() => setShowRiskBreakdown(v => !v)}
+                    style={{ background:"none", border:"none", padding:0, cursor:"pointer", fontFamily:"'DM Mono',monospace", fontSize:"9px", color:t.brand, letterSpacing:"0.5px" }}
+                  >{showRiskBreakdown ? "HIDE" : "WHY?"}</button>
+                )}
               </div>
-              <div style={{ marginTop:"16px", height:"6px", borderRadius:"6px", background:t.surfaceHigh, overflow:"hidden" }}>
-                <div style={{ height:"100%", width:score+"%", background:"linear-gradient(90deg,#22E676,#FFB020,#FF4D4D)", borderRadius:"6px", transition:"width 1s ease" }}/>
-              </div>
-              <div style={{ display:"flex", justifyContent:"space-between", marginTop:"6px" }}>
-                <span style={{ fontFamily:"'DM Mono',monospace", fontSize:"9px", color:t.textMuted }}>LOW RISK</span>
-                <span style={{ fontFamily:"'DM Mono',monospace", fontSize:"9px", color:t.textMuted }}>HIGH RISK</span>
-              </div>
+              {hasRealScore ? (
+                <>
+                  <div style={{ display:"flex", alignItems:"baseline", gap:"12px" }}>
+                    <span style={{ fontFamily:"'Outfit',sans-serif", fontSize:"56px", fontWeight:900, color:cfg.text, lineHeight:1, letterSpacing:"-2px" }}>{score}</span>
+                    {delta != null && delta !== 0 && (
+                      <span style={{ fontFamily:"'DM Mono',monospace", fontSize:"14px", color:delta > 0 ? t.red : t.green }}>
+                        {delta > 0 ? "▲" : "▼"} {Math.abs(delta)} prev call
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ marginTop:"16px", height:"6px", borderRadius:"6px", background:t.surfaceHigh, overflow:"hidden" }}>
+                    <div style={{ height:"100%", width:score+"%", background:"linear-gradient(90deg,#22E676,#FFB020,#FF4D4D)", borderRadius:"6px", transition:"width 1s ease" }}/>
+                  </div>
+                  <div style={{ display:"flex", justifyContent:"space-between", marginTop:"6px" }}>
+                    <span style={{ fontFamily:"'DM Mono',monospace", fontSize:"9px", color:t.textMuted }}>LOW RISK</span>
+                    <span style={{ fontFamily:"'DM Mono',monospace", fontSize:"9px", color:t.textMuted }}>HIGH RISK</span>
+                  </div>
+                </>
+              ) : (
+                <div style={{ padding:"20px 0 8px", fontFamily:"'Outfit',sans-serif", fontSize:"13px", color:t.textMuted, fontStyle:"italic" }}>
+                  Risk score will appear after the first completed call with data.
+                </div>
+              )}
+
+              {/* Breakdown panel — pathway domain scores */}
+              {hasRealScore && showRiskBreakdown && (() => {
+                const domainScores = p.domainScores
+                  ? Object.entries(p.domainScores).sort((a, b) => (b[1] || 0) - (a[1] || 0))
+                  : [];
+                if (domainScores.length === 0) return null;
+                return (
+                  <div style={{ marginTop:"14px", padding:"12px", borderRadius:"10px", background:t.surfaceHigh, border:"1px solid "+t.border }}>
+                    <div style={{ fontFamily:"'DM Mono',monospace", fontSize:"9px", color:t.textMuted, letterSpacing:"1px", marginBottom:"8px" }}>
+                      PATHWAY DOMAIN SCORES (0-4)
+                    </div>
+                    {domainScores.map(([domain, val]) => {
+                      const pct = Math.min(100, ((val || 0) / 4) * 100);
+                      const color = val >= 3 ? t.red : val >= 2 ? "#f59e0b" : t.brand;
+                      return (
+                        <div key={domain} style={{ display:"flex", alignItems:"center", gap:"8px", marginBottom:"5px" }}>
+                          <span style={{ fontFamily:"'DM Mono',monospace", fontSize:"9px", color:t.textMuted, width:100, flexShrink:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                            {domain.replace(/_/g," ").toUpperCase()}
+                          </span>
+                          <div style={{ flex:1, height:"4px", borderRadius:"3px", background:t.border, overflow:"hidden" }}>
+                            <div style={{ height:"100%", width:pct+"%", background:color, borderRadius:"3px", transition:"width 0.4s ease" }}/>
+                          </div>
+                          <span style={{ fontFamily:"'DM Mono',monospace", fontSize:"9px", color:t.textSecond, width:28, textAlign:"right" }}>{val ?? "—"}/4</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+
+              {/* Risk history sparkline */}
+              {hasRealScore && riskHistory.length > 1 && (() => {
+                const W=260, H=44, PL=4, PR=4, PT=4, PB=14;
+                const iW=W-PL-PR, iH=H-PT-PB;
+                const scores = riskHistory.map(r => r.risk_score);
+                const days   = riskHistory.map((r,i) => r.day_in_recovery ?? i);
+                const minD=Math.min(...days), maxD=Math.max(...days)||1;
+                const x = d => PL + ((d-minD)/(maxD-minD||1))*iW;
+                const y = v => PT + (1-(v/100))*iH;
+                const pts = riskHistory.map((r,i) => `${x(days[i])},${y(r.risk_score)}`).join(" ");
+                const bandColor = s => s >= 70 ? "#ef4444" : s >= 40 ? "#f59e0b" : "#22c55e";
+                return (
+                  <div style={{ marginTop:"16px" }}>
+                    <div style={{ fontFamily:"'DM Mono',monospace", fontSize:"9px", color:t.textMuted, letterSpacing:"1px", marginBottom:"6px" }}>RISK SCORE HISTORY</div>
+                    <svg width={W} height={H} style={{ overflow:"visible", display:"block" }}>
+                      {/* Zero baseline at 40 (amber threshold) */}
+                      <line x1={PL} y1={y(40)} x2={W-PR} y2={y(40)} stroke={t.border} strokeWidth="1" strokeDasharray="3,3"/>
+                      <line x1={PL} y1={y(70)} x2={W-PR} y2={y(70)} stroke={t.redBorder||"#fca5a5"} strokeWidth="1" strokeDasharray="3,3"/>
+                      <polyline points={pts} fill="none" stroke={t.brand} strokeWidth="2" strokeLinejoin="round"/>
+                      {riskHistory.map((r,i) => (
+                        <circle key={i} cx={x(days[i])} cy={y(r.risk_score)} r="3"
+                          fill={bandColor(r.risk_score)} stroke={t.surface} strokeWidth="1.5"/>
+                      ))}
+                      {/* Day labels */}
+                      {riskHistory.map((r,i) => (
+                        <text key={i} x={x(days[i])} y={H} fontSize="7"
+                          fill={t.textMuted} textAnchor="middle" fontFamily="'DM Mono',monospace">
+                          D{days[i] ?? i}
+                        </text>
+                      ))}
+                    </svg>
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Clinical summary — longitudinal narrative or latest SOAP assessment */}
@@ -425,21 +521,23 @@ export default function PatientDetailPage() {
           {/* ── RIGHT: Trajectory + Tabs ── */}
           <div style={{ display:"flex", flexDirection:"column", gap:"16px" }}>
 
-            {/* Trajectory chart */}
-            <div style={{ background:t.surface, border:"1px solid "+t.border, borderRadius:"18px", padding:"24px", boxShadow:"0 2px 12px "+t.shadow }}>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"20px" }}>
-                <div>
-                  <div style={{ fontFamily:"'Outfit',sans-serif", fontWeight:700, fontSize:"16px", color:t.textPrimary }}>Recovery Trajectory</div>
-                  <div style={{ fontFamily:"'DM Mono',monospace", fontSize:"10px", color:t.textMuted, marginTop:"3px" }}>ACTUAL vs NICE EXPECTED CURVE · {(p.pathway||"PATHWAY").toUpperCase()}</div>
-                </div>
-                {p.flag && (
-                  <div style={{ padding:"6px 14px", borderRadius:"8px", background:t.redBg, border:"1px solid "+t.redBorder, fontFamily:"'DM Mono',monospace", fontSize:"10px", color:t.red }}>
-                    FTP DAY {p.daysAdmitted}
+            {/* Trajectory chart — only once we have real trend data */}
+            {hasTrends && (
+              <div style={{ background:t.surface, border:"1px solid "+t.border, borderRadius:"18px", padding:"24px", boxShadow:"0 2px 12px "+t.shadow }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"20px" }}>
+                  <div>
+                    <div style={{ fontFamily:"'Outfit',sans-serif", fontWeight:700, fontSize:"16px", color:t.textPrimary }}>Recovery Trajectory</div>
+                    <div style={{ fontFamily:"'DM Mono',monospace", fontSize:"10px", color:t.textMuted, marginTop:"3px" }}>ACTUAL vs NICE EXPECTED CURVE · {(p.pathway||"PATHWAY").toUpperCase()}</div>
                   </div>
-                )}
+                  {p.flag && (
+                    <div style={{ padding:"6px 14px", borderRadius:"8px", background:t.redBg, border:"1px solid "+t.redBorder, fontFamily:"'DM Mono',monospace", fontSize:"10px", color:t.red }}>
+                      FTP DAY {p.daysAdmitted}
+                    </div>
+                  )}
+                </div>
+                <TrajectoryChart trends={trends} fallbackData={null} t={t}/>
               </div>
-              <TrajectoryChart trends={hasTrends ? trends : null} fallbackData={traj} t={t}/>
-            </div>
+            )}
 
             {/* Tabs: Call History / SOAP / Notes */}
             {(() => {
@@ -553,6 +651,10 @@ export default function PatientDetailPage() {
                       <div>
                         {selectedCallLoading ? (
                           <div style={{ fontFamily:"'Outfit',sans-serif", color:t.textMuted, fontSize:13 }}>Loading SOAP note…</div>
+                        ) : selectedCall?.status === "missed" || selectedCall?.status === "no_answer" ? (
+                          <div style={{ fontFamily:"'Outfit',sans-serif", color:t.textMuted, fontSize:13 }}>
+                            Call did not connect — no SOAP note generated.
+                          </div>
                         ) : !selSoap || (!selSoap.subjective && !selSoap.assessment) ? (
                           <div style={{ fontFamily:"'Outfit',sans-serif", color:t.textMuted, fontSize:13 }}>
                             {calls.length === 0 ? "No calls found." : "No SOAP note available for this call."}

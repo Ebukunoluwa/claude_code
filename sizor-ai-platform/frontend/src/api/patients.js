@@ -6,6 +6,7 @@ export const listPatients = () => client.get("/patients").then((r) => r.data);
 export const updatePatient = (id, data) => client.put(`/patients/${id}`, data).then((r) => r.data);
 export const getPatientCalls = (id) => client.get(`/patients/${id}/calls`).then((r) => r.data);
 export const getPatientTrends = (id) => client.get(`/patients/${id}/trends`).then((r) => r.data);
+export const getPatientRiskHistory = (id) => client.get(`/patients/${id}/risk-history`).then((r) => r.data);
 export const getPatientDecisions = (id) => client.get(`/patients/${id}/decisions`).then((r) => r.data);
 export const getPatientSchedule = (id) => client.get(`/patients/${id}/schedule`).then((r) => r.data);
 export const updateProfile = (id, data) => client.put(`/patients/${id}/profile`, data).then((r) => r.data);

@@ -184,7 +184,6 @@ export default function DashboardPage() {
         });
         const mc = data.missed_calls || [];
         setMissedCalls(mc);
-        if (mc.length > 0) setMissedOpen(true);
       })
       .catch(() => {})
       .finally(() => { setLoading(false); setTimeout(() => setMounted(true), 50); });

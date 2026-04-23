@@ -99,6 +99,7 @@ class CheckInAgent(Agent):
         self._started_at: float = time.time()
         self._identity_state: Optional[IdentityState] = None
         self._conversation_turns: list[tuple[str, str]] = []  # [(role, text), ...]
+        self._prompt_locked: bool = False   # True once clinical phase starts; blocks mid-call instruction updates
         self._turn_end_time: float = 0.0  # when user last finished speaking
         self._turn_latencies: list[float] = []  # user→agent latency per turn (seconds)
         self._triage_level: TriageLevel = TriageLevel.GREEN
@@ -106,6 +107,8 @@ class CheckInAgent(Agent):
         self._red_flag_triggered: bool = False
         self._session: Optional[AgentSession] = None
         self._pending_dob_text: str = ""  # patient's original DOB speech, fallback if agent repeat empty
+        self._said_goodbye: bool = False   # True when agent says farewell — signals clean call end
+        self._is_continuation: bool = False  # True for continuation calls after a cut-off
 
     # ─────────────────────────────────────────────────────────────────────────
     # Lifecycle hooks
@@ -141,9 +144,17 @@ class CheckInAgent(Agent):
                         and not self._identity_state.agent_dob_repeat):
                     self._identity_state.agent_dob_repeat = text
                     logger.info("Captured agent DOB repeat: %r call_id=%s", text, self._call_id)
-                # Auto-close after goodbye
+                # Auto-close after goodbye.
+                # Only match words that exclusively appear in the closing script.
+                # "take care" is intentionally excluded — it appears mid-call in clinical advice.
                 lower = text.lower()
-                if any(w in lower for w in ("goodbye", "take care", "bye", "farewell")):
+                _is_goodbye = (
+                    "goodbye" in lower
+                    or lower.rstrip(" .!").endswith("bye")
+                    or lower.rstrip(" .!").endswith("bye now")
+                )
+                if _is_goodbye:
+                    self._said_goodbye = True
                     logger.info("Goodbye detected — closing session in 5s — call_id=%s", self._call_id)
                     asyncio.create_task(self._close_after_delay(5.0))
             except Exception:
@@ -170,6 +181,7 @@ class CheckInAgent(Agent):
             self._is_probe = attrs.get("is_probe", "false") == "true"
             self._probe_call_id = attrs.get("probe_call_id", "")
             self._probe_prompt = attrs.get("probe_prompt", "")
+            self._is_continuation = attrs.get("is_continuation", "false") == "true"
             # Discharge info passed directly from scheduler (fallback if context unavailable)
             raw_day = attrs.get("day_in_recovery", "")
             self._date_of_birth: str = attrs.get("date_of_birth", "")
@@ -192,8 +204,16 @@ class CheckInAgent(Agent):
             expected_postcode=self._postcode,
         )
 
-        # Set a temporary placeholder prompt so the agent has something while we wait
-        if not (self._is_probe and self._probe_prompt):
+        # Set instructions — probe calls use the pre-generated probe prompt directly;
+        # continuation calls mark identity as already verified;
+        # standard calls use a placeholder until the background context fetch completes.
+        if self._is_probe and self._probe_prompt:
+            await self.update_instructions(self._probe_prompt)
+            self._prompt_locked = True  # probe calls never need background instruction updates
+        else:
+            # For continuation calls, pass the identity_verified flag via the prompt
+            # but do NOT pre-mark as verified in state — let the prompt handle it.
+            # (Identity was already marked verified in the prior call if it succeeded.)
             await self.update_instructions(
                 build_system_prompt(
                     patient_name=self._patient_name,
@@ -201,6 +221,7 @@ class CheckInAgent(Agent):
                     next_appointment=self._next_appointment,
                     previous_context=None,
                     postcode=self._postcode,
+                    is_continuation=self._is_continuation,
                 )
             )
         # ── 2. Persist call record (best-effort) ──────────────────────────────
@@ -288,10 +309,20 @@ class CheckInAgent(Agent):
         # Context fetching (especially playbook retries) can take minutes.
         # The patient must hear audio as soon as they answer or they'll hang up.
         await asyncio.sleep(1)  # brief pause for audio to settle after answer
-        greeting = (
-            f"Good day, this is Sarah calling from the NHS post-appointment care line. "
-            f"Could I please speak with {self._patient_name}?"
-        )
+        _first = self._patient_name.split()[0] if self._patient_name.split() else self._patient_name
+        if self._is_probe:
+            # Probe calls: minimal opener — the probe script handles full intro
+            greeting = f"Hi, is that {_first}?"
+        elif self._is_continuation:
+            greeting = (
+                f"Hi {_first}, it's Sarah again from the NHS care line — "
+                f"apologies, we seem to have got cut off. Are you okay to continue?"
+            )
+        else:
+            greeting = (
+                f"Good day, this is Sarah calling from the NHS post-discharge care line. "
+                f"Am I speaking with {_first}?"
+            )
         logger.info("Attempting session.say() greeting — call_id=%s dob=%r postcode=%r",
                     self._call_id, self._date_of_birth, self._postcode)
         try:
@@ -320,18 +351,20 @@ class CheckInAgent(Agent):
                 try:
                     previous_context = await get_patient_call_context(self._nhs_number)
                     # If pathway exists but playbook not ready yet (still generating),
-                    # retry up to 18 times with 10s gaps (covers ~3 min generation window).
+                    # retry up to 4 times with 5s gaps (20s max).
+                    # We don't wait longer — _domain_template fallback covers any gap,
+                    # and a 3-minute retry loop would freeze the conversation mid-call.
                     if (
                         previous_context
                         and (previous_context.get("pathway_label") or previous_context.get("opcs_code"))
                         and not previous_context.get("playbook")
                     ):
-                        for attempt in range(18):
+                        for attempt in range(4):
                             logger.info(
-                                "Playbook not ready yet — retrying in 10s (attempt %d/18) call_id=%s",
+                                "Playbook not ready yet — retrying in 5s (attempt %d/4) call_id=%s",
                                 attempt + 1, self._call_id,
                             )
-                            await asyncio.sleep(10)
+                            await asyncio.sleep(5)
                             previous_context = await get_patient_call_context(self._nhs_number)
                             if previous_context and previous_context.get("playbook"):
                                 break
@@ -384,7 +417,17 @@ class CheckInAgent(Agent):
             next_appointment=self._next_appointment,
             previous_context=previous_context,
             postcode=self._postcode,
+            is_continuation=self._is_continuation,
         )
+        # Don't update instructions once the clinical phase has started — swapping the
+        # system prompt mid-conversation causes the LLM to pause/freeze for several seconds.
+        if self._prompt_locked:
+            logger.info(
+                "Prompt locked (clinical phase started) — skipping late instruction update call_id=%s",
+                self._call_id,
+            )
+            return
+
         try:
             await self.update_instructions(prompt)
             logger.info(
@@ -465,6 +508,29 @@ class CheckInAgent(Agent):
             )
         )
 
+        # Detect cut-off: real conversation happened but call ended without a goodbye.
+        # Lower threshold to 2 turns so early cut-offs are also caught.
+        # Identity verification is NOT required — if the call cut off during verification
+        # the continuation call will re-verify cleanly.
+        _real_turns = len(self._conversation_turns)
+        _was_cut_off = (
+            _real_turns >= 2
+            and not self._said_goodbye
+            and not self._is_probe          # probe calls don't continue
+            and not self._is_continuation   # don't chain continuation → continuation
+        )
+        final_call_status = "cut_off" if _was_cut_off else None
+        if _was_cut_off:
+            logger.info(
+                "Call cut off after %d turns (goodbye=%s) — scheduling continuation — call_id=%s",
+                _real_turns, self._said_goodbye, self._call_id,
+            )
+        else:
+            logger.info(
+                "Call ended cleanly — turns=%d goodbye=%s probe=%s continuation=%s call_id=%s",
+                _real_turns, self._said_goodbye, self._is_probe, self._is_continuation, self._call_id,
+            )
+
         # Push to Sizor AI platform for full clinical pipeline + dashboard.
         # Awaited directly so it completes before the session fully closes —
         # fire-and-forget tasks get cancelled when the room is deleted.
@@ -477,6 +543,7 @@ class CheckInAgent(Agent):
             patient_id=self._patient_id or None,
             probe_call_id=self._probe_call_id or None,
             latency_stats=latency_stats or None,
+            call_status=final_call_status,
         )
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -627,6 +694,12 @@ class CheckInAgent(Agent):
         """Real-time triage + code-level identity verification on every patient utterance."""
         self._turn_end_time = time.time()
         content = new_message.content
+
+        # Lock instructions once identity phase is complete (≥4 patient turns) to prevent
+        # background context fetch from swapping the system prompt mid-clinical-assessment.
+        if not self._prompt_locked and len(self._conversation_turns) >= 4:
+            self._prompt_locked = True
+            logger.info("Prompt locked — clinical phase reached call_id=%s", self._call_id)
         if isinstance(content, list):
             text = " ".join(
                 p if isinstance(p, str) else getattr(p, "text", "")

@@ -1,8 +1,8 @@
 import uuid
-from datetime import datetime, timezone, date
+from datetime import datetime, timezone, date, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from ..database import get_db
 from ..models import CallRecord, SOAPNote, ClinicalExtraction, UrgencyFlag, ClinicianAction, Patient, CallSchedule
 from .auth import get_current_clinician
@@ -60,10 +60,12 @@ async def ingest_call_from_voice_agent(
 
     probe_call_id = data.get("probe_call_id")
 
-    # Determine final call status — agent sends call_status="missed" for unanswered calls
+    # Determine final call status
+    # Agent sends: "missed" for unanswered, "cut_off" for calls that ended unexpectedly mid-session
     transcript = data.get("transcript", "")
+    agent_status = data.get("call_status")
     final_status = (
-        data.get("call_status")
+        agent_status
         or ("missed" if not transcript and data.get("duration_seconds", 1) == 0 else "completed")
     )
 
@@ -98,16 +100,71 @@ async def ingest_call_from_voice_agent(
     if dispatched_sched:
         dispatched_sched.status = "completed" if final_status == "completed" else "missed"
 
+    # For missed calls: schedule a retry 2 hours later if no pending call already exists
+    if final_status == "missed":
+        now_utc = datetime.now(timezone.utc)
+        retry_window_end = now_utc + timedelta(hours=24)
+        existing_pending = (await db.execute(
+            select(CallSchedule).where(
+                CallSchedule.patient_id == patient.patient_id,
+                CallSchedule.status == "pending",
+                CallSchedule.scheduled_for > now_utc,
+                CallSchedule.scheduled_for < retry_window_end,
+            ).limit(1)
+        )).scalar_one_or_none()
+
+        if not existing_pending:
+            retry_time = now_utc + timedelta(hours=2)
+            retry_sched = CallSchedule(
+                patient_id=patient.patient_id,
+                scheduled_for=retry_time,
+                module="post_discharge",
+                call_type="retry",
+                protocol_name="missed_call_retry",
+                status="pending",
+            )
+            db.add(retry_sched)
+            await db.commit()
+            await db.refresh(retry_sched)
+
+            celery_app.send_task(
+                "fire_scheduled_call",
+                args=[str(retry_sched.schedule_id)],
+                eta=retry_time,
+            )
+
     await db.commit()
 
     # Trigger full pipeline (SOAP, extraction, FTP, flags, longitudinal summary)
-    # Only run pipeline for calls with actual content
-    if final_status == "completed" and transcript.strip():
+    # Run for completed AND cut-off calls — partial data is clinically valuable
+    if final_status in ("completed", "cut_off") and transcript.strip():
         celery_app.send_task("process_call", args=[call_id])
 
     # If this is a probe call, update its status and link SOAP note after pipeline
     if probe_call_id:
         celery_app.send_task("link_probe_call", args=[probe_call_id, call_id], countdown=30)
+
+    # For cut-off calls: schedule a continuation call 5 minutes later
+    if final_status == "cut_off":
+        now_utc = datetime.now(timezone.utc)
+        continuation_time = now_utc + timedelta(minutes=5)
+        cont_sched = CallSchedule(
+            patient_id=patient.patient_id,
+            scheduled_for=continuation_time,
+            module="post_discharge",
+            call_type="continuation",
+            protocol_name="cut_off_continuation",
+            status="pending",
+        )
+        db.add(cont_sched)
+        await db.commit()
+        await db.refresh(cont_sched)
+
+        celery_app.send_task(
+            "fire_scheduled_call",
+            args=[str(cont_sched.schedule_id)],
+            eta=continuation_time,
+        )
 
     return {"call_id": call_id, "patient_id": str(patient.patient_id), "status": final_status}
 
@@ -189,6 +246,14 @@ async def process_call_endpoint(
     db: AsyncSession = Depends(get_db),
     clinician=Depends(get_current_clinician),
 ):
+    result = await db.execute(select(CallRecord).where(CallRecord.call_id == uuid.UUID(call_id)))
+    call = result.scalar_one_or_none()
+    if not call:
+        raise HTTPException(404, "Call not found")
+    if call.status in ("missed", "no_answer"):
+        raise HTTPException(400, "Cannot process a call that did not connect")
+    if not (call.transcript_raw or "").strip():
+        raise HTTPException(400, "No transcript available — call may not have connected")
     celery_app.send_task("process_call", args=[call_id])
     return {"status": "processing", "call_id": call_id}
 

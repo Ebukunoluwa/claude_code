@@ -243,6 +243,7 @@ def fire_scheduled_call(schedule_id: str):
                     api_secret=settings.livekit_api_secret,
                 )
                 try:
+                    is_continuation = schedule.call_type == "continuation"
                     await lk_client.sip.create_sip_participant(
                         lk_api.CreateSIPParticipantRequest(
                             sip_trunk_id=settings.twilio_sip_trunk_id,
@@ -263,6 +264,7 @@ def fire_scheduled_call(schedule_id: str):
                                 "discharge_date":   str(patient.discharge_date) if patient.discharge_date else "",
                                 "day_in_recovery":  str(day_in_recovery) if day_in_recovery is not None else "",
                                 "next_appointment": next_appointment,
+                                "is_continuation":  "true" if is_continuation else "false",
                             },
                         )
                     )

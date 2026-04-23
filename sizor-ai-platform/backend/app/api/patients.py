@@ -267,8 +267,49 @@ async def get_patient(
     )
     actions = actions_result.scalars().all()
 
+    # Two most recent extractions — latest for score, second for delta
+    latest_ext_result = await db.execute(
+        select(ClinicalExtraction)
+        .where(ClinicalExtraction.patient_id == patient.patient_id)
+        .order_by(ClinicalExtraction.extracted_at.desc())
+        .limit(2)
+    )
+    ext_rows = latest_ext_result.scalars().all()
+    latest_ext = ext_rows[0] if ext_rows else None
+    prior_ext  = ext_rows[1] if len(ext_rows) > 1 else None
+
+    # Domain scores — find the most recent extraction that has non-empty domain_scores.
+    # The latest call might have empty domain_scores if the LLM found nothing new to score,
+    # so we walk back through extractions to surface the most recently assessed state.
+    domain_scores_result = await db.execute(
+        select(ClinicalExtraction)
+        .where(ClinicalExtraction.patient_id == patient.patient_id)
+        .order_by(ClinicalExtraction.extracted_at.desc())
+        .limit(10)
+    )
+    _domain_scores = None
+    for _ext in domain_scores_result.scalars().all():
+        _ds = (_ext.condition_specific_flags or {}).get("domain_scores")
+        if _ds:
+            _domain_scores = _ds
+            break
+
     out = _patient_dict(patient, day)
     out["urgency_severity"] = latest_flag.severity if latest_flag else "green"
+    out["risk_score"] = latest_ext.risk_score if latest_ext else None
+    out["risk_score_band"] = (
+        latest_ext.risk_score_breakdown.get("band_if_computed")
+        if latest_ext and latest_ext.risk_score_breakdown else None
+    )
+    out["risk_score_breakdown"] = latest_ext.risk_score_breakdown if latest_ext else None
+    out["domain_scores"] = _domain_scores
+    out["risk_score_delta"] = (
+        round(latest_ext.risk_score - prior_ext.risk_score, 1)
+        if latest_ext and prior_ext
+        and latest_ext.risk_score is not None
+        and prior_ext.risk_score is not None
+        else None
+    )
     out["medical_profile"] = {
         "primary_diagnosis": profile.primary_diagnosis,
         "secondary_diagnoses": profile.secondary_diagnoses,
@@ -399,7 +440,10 @@ async def update_pathway(
     db: AsyncSession = Depends(get_db),
     clinician=Depends(get_current_clinician),
 ):
-    """Update editable pathway fields: domains, risk_flags, clinical_red_flags."""
+    """Update editable pathway fields: domains, risk_flags, clinical_red_flags.
+    When domains or clinical_red_flags change the playbook is regenerated in the
+    background so call scripts stay aligned with the active domain/flag set.
+    """
     updates = []
     params: dict = {"pid": patient_id}
     if "domains" in data:
@@ -418,6 +462,76 @@ async def update_pathway(
         params,
     )
     await db.commit()
+
+    # Regenerate playbook when the domain list or red flags change so call
+    # scripts stay aligned with the updated configuration.
+    if "domains" in data or "clinical_red_flags" in data:
+        pw_row = await db.execute(text("""
+            SELECT opcs_code, domains, clinical_red_flags
+            FROM patient_pathways
+            WHERE patient_id = :pid AND active = true
+            LIMIT 1
+        """), {"pid": patient_id})
+        pw = pw_row.mappings().first()
+        if pw and pw["opcs_code"] and OPCS_TO_NICE_MAP.get(pw["opcs_code"]):
+            _pid = patient_id
+            _opcs = pw["opcs_code"]
+            _pathway = OPCS_TO_NICE_MAP[_opcs]
+            _domains = pw["domains"] or _pathway["monitoring_domains"]
+            _red_flags = pw["clinical_red_flags"] or _pathway.get("red_flags", [])
+
+            async def _regen_playbook():
+                import logging as _logging
+                _log = _logging.getLogger(__name__)
+                try:
+                    from ..clinical.playbook import generate_playbook
+                    from ..services.llm_client import LLMClient
+                    from ..services.rag_service import retrieve_nice_context
+                    from ..models import DomainBenchmark
+                    from ..database import AsyncSessionLocal
+                    async with AsyncSessionLocal() as session:
+                        bench_result = await session.execute(
+                            select(DomainBenchmark).where(DomainBenchmark.opcs_code == _opcs)
+                        )
+                        bench_rows = bench_result.scalars().all()
+                        rag_chunks = await retrieve_nice_context(
+                            session,
+                            nice_ids=_pathway["nice_ids"],
+                            query=f"{_pathway['label']} post-discharge recovery monitoring",
+                            n=6,
+                        )
+                        pb = await generate_playbook(
+                            opcs_code=_opcs,
+                            pathway_label=_pathway["label"],
+                            category=_pathway["category"],
+                            domains=_domains,
+                            call_days=_pathway["call_days"],
+                            risk_flags=_red_flags,
+                            llm_client=LLMClient(),
+                            benchmark_rows=bench_rows,
+                            rag_chunks=rag_chunks,
+                            pathway_nice_ids=_pathway["nice_ids"],
+                            pathway_red_flags=_pathway.get("red_flags", []),
+                        )
+                        await session.execute(text("""
+                            UPDATE patient_pathways
+                            SET playbook = cast(:playbook as jsonb)
+                            WHERE patient_id = :patient_id AND opcs_code = :opcs_code
+                        """), {
+                            "playbook": __import__("json").dumps(pb),
+                            "patient_id": _pid,
+                            "opcs_code": _opcs,
+                        })
+                        await session.commit()
+                        _log.info("Playbook regenerated for patient %s after pathway update", _pid)
+                except Exception as exc:
+                    _logging.getLogger(__name__).error(
+                        "Playbook regen failed for patient %s: %s", _pid, exc, exc_info=True
+                    )
+
+            import asyncio
+            asyncio.ensure_future(_regen_playbook())
+
     return {"status": "ok"}
 
 
@@ -531,6 +645,52 @@ async def get_patient_scores(
                     })
 
     return grouped
+
+
+@router.get("/{patient_id}/risk-history")
+async def get_risk_history(
+    patient_id: str,
+    db: AsyncSession = Depends(get_db),
+    clinician=Depends(get_current_clinician),
+):
+    """
+    Returns per-call risk scores ordered chronologically.
+    Used to render the risk score history sparkline on the patient detail page.
+    """
+    result = await db.execute(
+        select(ClinicalExtraction, CallRecord)
+        .join(CallRecord, ClinicalExtraction.call_id == CallRecord.call_id)
+        .where(
+            ClinicalExtraction.patient_id == uuid.UUID(patient_id),
+            ClinicalExtraction.risk_score.is_not(None),
+        )
+        .order_by(CallRecord.started_at)
+    )
+    rows = result.all()
+
+    # Deduplicate: one entry per call (take the row with the highest risk_score
+    # if multiple extractions exist for the same call — shouldn't happen but safe)
+    seen: dict[str, dict] = {}
+    for ext, call in rows:
+        cid = str(call.call_id)
+        entry = {
+            "call_id": cid,
+            "date": call.started_at.isoformat() if call.started_at else None,
+            "day_in_recovery": call.day_in_recovery,
+            "risk_score": ext.risk_score,
+            "band": (
+                ext.risk_score_breakdown.get("band_if_computed")
+                if ext.risk_score_breakdown else None
+            ),
+            "dominant_driver": (
+                ext.risk_score_breakdown.get("dominant_driver")
+                if ext.risk_score_breakdown else None
+            ),
+        }
+        if cid not in seen or ext.risk_score > seen[cid]["risk_score"]:
+            seen[cid] = entry
+
+    return list(seen.values())
 
 
 @router.get("/{patient_id}/trends")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 
 from livekit import api as lk_api
@@ -9,6 +10,42 @@ from config.settings import settings
 from telephony.sip_config import OUTBOUND_TRUNK_ID
 
 logger = logging.getLogger(__name__)
+
+
+def _to_e164(number: str) -> str:
+    """
+    Normalise a phone number to E.164 format (+<country><subscriber>).
+
+    Rules applied in order:
+      1. Strip whitespace, dashes, parentheses, dots.
+      2. If the result already starts with '+', keep it — assume caller
+         entered a valid international number.
+      3. If it starts with '00', replace with '+'.
+      4. UK local format (07xxx / 01xxx / 02xxx — 11 digits starting with 0)
+         → strip leading 0 and prepend +44.
+      5. Anything else that has 10+ digits without a leading '+' gets a bare
+         '+' prepended so Twilio can at least attempt routing.
+
+    The function intentionally does NOT guess the country for ambiguous
+    formats.  Clinicians should always enter numbers in international format.
+    """
+    stripped = re.sub(r"[\s\-().+]", "", number.strip())  # digits only
+    raw = number.strip()
+
+    # Already has + — normalise spacing/dashes only
+    if raw.lstrip().startswith("+"):
+        return "+" + stripped
+
+    # 00-prefix international dialling
+    if stripped.startswith("00"):
+        return "+" + stripped[2:]
+
+    # UK local: starts with 07/01/02, exactly 11 digits
+    if re.match(r"^0[127]\d{9}$", stripped):
+        return "+44" + stripped[1:]
+
+    # Fallback: prepend + so Twilio at least sees an international format
+    return "+" + stripped
 
 
 async def initiate_outbound_call(
@@ -30,6 +67,11 @@ async def initiate_outbound_call(
     """
     call_id = call_id or str(uuid.uuid4())
     room_name = f"call-{call_id}"
+
+    normalised = _to_e164(phone_number)
+    if normalised != phone_number:
+        logger.info("Phone normalised: %r → %r", phone_number, normalised)
+    phone_number = normalised
 
     lk_client = lk_api.LiveKitAPI(
         url=settings.livekit_url,

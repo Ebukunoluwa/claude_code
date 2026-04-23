@@ -29,18 +29,11 @@ function timeAgoShort(iso) {
   return new Date(iso).toLocaleDateString("en-GB", { day:"numeric", month:"short" });
 }
 
-function ragToScore(sev, id) {
-  const hash = id ? id.split("").reduce((a, c) => a + c.charCodeAt(0), 0) : 0;
-  if (sev === "red")   return 70 + (hash % 20);
-  if (sev === "amber") return 42 + (hash % 18);
-  return 18 + (hash % 22);
-}
-
 function mapWorklist(worklist) {
   return worklist.map(p => {
     const rag   = toRag(p.urgency_severity);
-    const score = ragToScore(p.urgency_severity, p.patient_id);
-    const hash  = p.patient_id ? p.patient_id.split("").reduce((a, c) => a + c.charCodeAt(0), 0) : 0;
+    // Only use real risk_score — never generate fake scores for new patients
+    const score = p.risk_score != null ? Math.round(p.risk_score) : null;
     const hasFtp = p.ftp_status && p.ftp_status !== "none" && p.ftp_status !== "green";
     return {
       id:        p.patient_id,
@@ -52,10 +45,12 @@ function mapWorklist(worklist) {
       pathway:   p.condition || "General",
       rag,
       score,
-      delta:     rag === "RED" ? +(hash % 10 + 2) : -(hash % 10 + 2),
+      delta:     p.risk_score_delta != null ? Math.round(p.risk_score_delta) : null,
       flag:      hasFtp ? "Failure to Progress — manual review required" : null,
       nhs:       p.nhs_number || "—",
-      trend:     [score - 20, score - 15, score - 10, score - 5, score - 2, score - 1, score].map(v => Math.max(0, Math.min(100, v))),
+      trend:     score != null
+               ? [score - 20, score - 15, score - 10, score - 5, score - 2, score - 1, score].map(v => Math.max(0, Math.min(100, v)))
+               : null,
       calls:     0,
       lastCall:  timeAgoShort(p.last_call_at),
       daysAdmitted: p.day_in_recovery || 0,
@@ -289,12 +284,20 @@ export default function PatientPage() {
                     <div>
                       <div style={{ fontFamily:"'DM Mono',monospace", fontSize:"10px", color:t.textMuted, marginBottom:"4px", letterSpacing:"1px" }}>RISK SCORE</div>
                       <div style={{ display:"flex", alignItems:"baseline", gap:"8px" }}>
-                        <span style={{ fontFamily:"'Outfit',sans-serif", fontSize:"34px", fontWeight:900, color:cfg.text, lineHeight:1 }}>{p.score}</span>
-                        <span style={{ fontFamily:"'DM Mono',monospace", fontSize:"11px", color:p.delta > 0 ? t.red : t.green }}>{p.delta > 0 ? "▲" : "▼"} {Math.abs(p.delta)}</span>
+                        {p.score != null ? (
+                          <>
+                            <span style={{ fontFamily:"'Outfit',sans-serif", fontSize:"34px", fontWeight:900, color:cfg.text, lineHeight:1 }}>{p.score}</span>
+                            {p.delta != null && p.delta !== 0 && (
+                              <span style={{ fontFamily:"'DM Mono',monospace", fontSize:"11px", color:p.delta > 0 ? t.red : t.green }}>{p.delta > 0 ? "▲" : "▼"} {Math.abs(p.delta)}</span>
+                            )}
+                          </>
+                        ) : (
+                          <span style={{ fontFamily:"'DM Mono',monospace", fontSize:"14px", color:t.textMuted }}>Awaiting first call</span>
+                        )}
                       </div>
                     </div>
                     <div style={{ textAlign:"right" }}>
-                      <Sparkline data={p.trend} color={cfg.dot}/>
+                      {p.trend && <Sparkline data={p.trend} color={cfg.dot}/>}
                       <div style={{ fontFamily:"'DM Mono',monospace", fontSize:"10px", color:t.textMuted, marginTop:"4px" }}>{p.calls} calls · {p.lastCall}</div>
                     </div>
                   </div>

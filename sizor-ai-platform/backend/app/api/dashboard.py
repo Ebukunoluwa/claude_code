@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_
 from ..database import get_db
-from ..models import Patient, CallRecord, SOAPNote, UrgencyFlag, FTPRecord, CallSchedule, Ward
+from ..models import Patient, CallRecord, SOAPNote, UrgencyFlag, FTPRecord, CallSchedule, Ward, ClinicalExtraction
 from .auth import get_current_clinician
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
@@ -119,6 +119,17 @@ async def get_dashboard(
         if p.discharge_date:
             day = (datetime.now(timezone.utc).date() - p.discharge_date).days
 
+        # Two most recent extractions — latest for score, second for delta
+        ext_result = await db.execute(
+            select(ClinicalExtraction)
+            .where(ClinicalExtraction.patient_id == p.patient_id)
+            .order_by(ClinicalExtraction.extracted_at.desc())
+            .limit(2)
+        )
+        ext_rows = ext_result.scalars().all()
+        latest_ext = ext_rows[0] if ext_rows else None
+        prior_ext  = ext_rows[1] if len(ext_rows) > 1 else None
+
         severity = flag.severity if flag else "green"
         severity_order = {"red": 0, "amber": 1, "green": 2}
 
@@ -138,6 +149,23 @@ async def get_dashboard(
             "severity_order": severity_order.get(severity, 2),
             "ward_name": ward_name,
             "ward_specialty": ward_specialty,
+            "risk_score": latest_ext.risk_score if latest_ext else None,
+            "risk_score_band": (
+                latest_ext.risk_score_breakdown.get("band_if_computed")
+                if latest_ext and latest_ext.risk_score_breakdown else None
+            ),
+            "risk_score_breakdown": latest_ext.risk_score_breakdown if latest_ext else None,
+            "domain_scores": (
+                (latest_ext.condition_specific_flags or {}).get("domain_scores")
+                if latest_ext else None
+            ),
+            "risk_score_delta": (
+                round(latest_ext.risk_score - prior_ext.risk_score, 1)
+                if latest_ext and prior_ext
+                and latest_ext.risk_score is not None
+                and prior_ext.risk_score is not None
+                else None
+            ),
         })
 
     # Sort: RED unreviewed → AMBER unreviewed → GREEN unreviewed → reviewed by urgency
