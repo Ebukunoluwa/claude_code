@@ -11,21 +11,37 @@ Content sources:
   - Required Questions and Red Flag Probes net-new for Phase 3.
 
 Decisions during port (not open flags):
-  - Upstream fever_above_38_5 splits into two probes (reading vs
-    symptoms) because not every patient has a home thermometer.
-    Both SAME_DAY — post-surgical fever is a prosthetic joint
-    infection suspicion; 999 only if paired with sepsis signs
-    (covered in other pathways).
-  - knee_effusion_severe splits into three probes (swelling,
-    redness/heat, sudden pain) — each is an independent clinical
-    observation of an evolving joint problem. All SAME_DAY.
-  - dvt_symptoms is one atomic probe (not split) — the calf
-    presentation is one clinical observation with multiple anchors
-    (pain / swelling / warmth / tenderness), same pattern as the
-    DVT calf probe in R17/R18.
+  - Upstream fever_above_38_5 splits into three probes: reading
+    (SAME_DAY, threshold 38°C per QS48), symptoms (SAME_DAY, generic
+    feverish feeling), and rigors (EMERGENCY_999 — uncontrollable
+    shivering indicates bacteraemia). Parent_flag_code stays as the
+    monolith's 'fever_above_38_5' even though the clinical threshold
+    is 38°C per QS48 SSI surveillance — CLINICAL_REVIEW_NEEDED below.
+  - knee_effusion_severe splits into three single-observation
+    probes (swelling, redness/heat, pain), all SAME_DAY individually.
+    A compound rule — two+ effusion probes firing with any fever
+    probe firing should auto-escalate to EMERGENCY_999 for suspected
+    PJI sepsis — is flagged for Phase 4 call-status implementation,
+    not encoded at the probe layer here.
+  - dvt_symptoms splits into operated vs non-operated leg probes.
+    Post-TKR DVT most commonly occurs in the NON-operated leg; the
+    operated-leg question specifically excludes normal post-op
+    swelling to avoid both false positives (normal swelling) and
+    false negatives (patient focuses only on non-operated leg).
+    Both EMERGENCY_999.
   - pe_symptoms splits into breathing and chest pain, both 999,
     same as R17/R18 (no calf probe duplicated here since
     dvt_symptoms covers that).
+
+Wording principles applied throughout:
+  No patient-memory-comparison phrasings ("worse than before",
+  "more than usual", "beyond what you had", "different from your
+  normal"). Use concrete anchors instead: spreading redness,
+  24-hour change windows, absolute thresholds, or behavioural
+  anchors (can't walk / can't sleep / stopped what you were doing).
+  For genuine baseline comparisons, convert to a coverage-check
+  question asking whether the care team has noted a change rather
+  than asking the patient.
 
 Primary NICE sources: NG226 (joint replacement), TA304 (TKR devices),
 QS48 (surgical site infection), QS89 (VTE in hospital). Reviewer
@@ -174,7 +190,7 @@ W40_REQUIRED_QUESTIONS: list[RequiredQuestion] = [
     # Wound + infection are the two dominant Day 1-28 concerns (SSI risk).
     _rq(
         "wound_healing",
-        "How is the wound looking — any redness, swelling beyond what you had a few days ago, or fluid coming from it?",
+        "How is the wound looking — any redness spreading beyond the immediate scar area, any swelling that's worse in the last 24 hours, or fluid coming from it?",
         [(1, 3), (4, 7), (8, 14), (15, 28)],
         "NG226 §1.8",
     ),
@@ -204,7 +220,7 @@ W40_REQUIRED_QUESTIONS: list[RequiredQuestion] = [
     ),
     _rq(
         "infection_signs",
-        "Any increasing heat or redness around the wound, or a fever or feeling generally unwell?",
+        "Any heat or redness around the wound that has spread further than the scar area, a fever in the last 24 hours, or feeling generally unwell?",
         [(1, 3), (4, 7), (8, 14), (15, 28)],
         "QS48",
     ),
@@ -255,32 +271,56 @@ W40_RED_FLAG_PROBES: dict[str, RedFlagProbe] = {
         validation_status=_DRAFT,
     ),
 
-    # ══ dvt_symptoms — 1 atomic probe (calf presentation) ══════════════
-    # Single clinical observation with multiple anchors, same pattern as
-    # the DVT calf probe in R17/R18. The "non-operated leg" cue helps the
-    # patient distinguish DVT from normal post-op swelling.
-    "dvt_symptoms": RedFlagProbe(
-        flag_code="dvt_symptoms",
-        parent_flag_code=None,
+    # ══ dvt_symptoms — split by leg (both EMERGENCY_999) ═══════════════
+    # Post-TKR DVT most commonly occurs in the NON-operated leg, so that
+    # probe gets the simpler wording. The operated-leg probe has to
+    # distinguish new/worsening calf pain from the expected post-op
+    # swelling — the 24-hour change window anchors this without asking
+    # the patient to compare to a memory baseline. Both probes share
+    # parent_flag_code='dvt_symptoms' for dashboard aggregation.
+    "dvt_symptoms_non_operated_leg": RedFlagProbe(
+        flag_code="dvt_symptoms_non_operated_leg",
+        parent_flag_code="dvt_symptoms",
         category=RedFlagCategory.PATHWAY_SPECIFIC,
         nice_basis="NG89 §1.9 / NG158",
         patient_facing_question=(
-            "Any new pain, swelling, or warmth in your calf that feels different "
-            "from your normal post-surgery swelling — especially tender when you "
-            "press on it, and particularly in your non-operated leg?"
+            "Any new pain, swelling, or tenderness in your non-operated leg's calf?"
         ),
         follow_up_escalation=EscalationTier.EMERGENCY_999,
         validation_status=_DRAFT,
     ),
+    "dvt_symptoms_operated_leg": RedFlagProbe(
+        flag_code="dvt_symptoms_operated_leg",
+        parent_flag_code="dvt_symptoms",
+        category=RedFlagCategory.PATHWAY_SPECIFIC,
+        nice_basis="NG89 §1.9 / NG158",
+        patient_facing_question=(
+            "In your operated leg — any calf pain or tenderness that's new "
+            "or worsening in the last day or two, separate from the general "
+            "post-op swelling you had before?"
+        ),
+        follow_up_escalation=EscalationTier.EMERGENCY_999,
+        validation_status=_DRAFT,
+        # CLINICAL_REVIEW_NEEDED: wording still contains "you had before"
+        # which edges close to a memory-comparison phrasing. Reviewer to
+        # confirm whether the "last day or two" anchor is sufficient or
+        # whether the phrase needs tightening to a pure 24-hour / pure
+        # behavioural anchor.
+    ),
 
-    # ══ fever_above_38_5 — 2 probes (reading vs symptoms) ══════════════
+    # ══ fever_above_38_5 — 3 probes: reading, symptoms, rigors ═════════
+    # QS48 SSI surveillance threshold is 38°C (not 38.5°C). The upstream
+    # monolith code 'fever_above_38_5' is retained as parent for
+    # compatibility, but probes reflect the correct clinical threshold.
+    # Rigors split out as EMERGENCY_999 — uncontrollable shivering
+    # indicates bacteraemia and warrants immediate escalation.
     "fever_above_38_5_reading": RedFlagProbe(
         flag_code="fever_above_38_5_reading",
         parent_flag_code="fever_above_38_5",
         category=RedFlagCategory.PATHWAY_SPECIFIC,
         nice_basis="QS48 / NG226 §1.8",
         patient_facing_question=(
-            "If you have a thermometer — has your temperature been above 38.5?"
+            "If you have a thermometer — has your temperature been above 38?"
         ),
         follow_up_escalation=EscalationTier.SAME_DAY,
         validation_status=_DRAFT,
@@ -291,16 +331,36 @@ W40_RED_FLAG_PROBES: dict[str, RedFlagProbe] = {
         category=RedFlagCategory.PATHWAY_SPECIFIC,
         nice_basis="QS48 / NG226 §1.8",
         patient_facing_question=(
-            "Have you felt very hot-and-cold, shivery, or feverish since the last call?"
+            "Have you felt hot-and-cold, sweaty, or feverish in the last 24 hours?"
         ),
         follow_up_escalation=EscalationTier.SAME_DAY,
         validation_status=_DRAFT,
     ),
-    # CLINICAL_REVIEW_NEEDED: fever alone is SAME_DAY in this draft.
-    # Reviewer to confirm whether fever + sepsis signs (rigors, tachycardia,
-    # confusion) should upgrade to EMERGENCY_999 via a separate compound
-    # rule at the call-status layer, or whether a new probe captures the
-    # sepsis combination.
+    "fever_with_rigors": RedFlagProbe(
+        flag_code="fever_with_rigors",
+        parent_flag_code="fever_above_38_5",
+        category=RedFlagCategory.SEPSIS_SIGNS,
+        nice_basis="QS48 / NG51 §1.1",
+        patient_facing_question=(
+            "Have you had any episodes of uncontrollable shivering or shaking?"
+        ),
+        follow_up_escalation=EscalationTier.EMERGENCY_999,
+        validation_status=_DRAFT,
+    ),
+    # CLINICAL_REVIEW_NEEDED: probe name 'fever_above_38_5_reading' still
+    # references the 38.5 threshold but the question now asks about 38°C
+    # (the QS48 SSI surveillance threshold). Parent_flag_code kept as
+    # 'fever_above_38_5' for upstream monolith compatibility. Reviewer
+    # to decide whether to rename the upstream code to 'fever_above_38'
+    # across the pathway set (would propagate to monolith and dashboards).
+    #
+    # CLINICAL_REVIEW_NEEDED: PJI sepsis compound rule for Phase 4 call-
+    # status logic — when two or more knee_effusion_severe_* probes fire
+    # AND any fever_above_38_5_* probe fires, the combined picture
+    # suggests PJI sepsis and should auto-escalate to EMERGENCY_999.
+    # Current draft treats the probes as isolated SAME_DAY signals;
+    # reviewer to confirm this compound rule lands in Phase 4
+    # compute_overall_call_status.
 
     # ══ pe_symptoms — 2 probes (same pattern as R17/R18) ═══════════════
     "pe_symptoms_breathing": RedFlagProbe(
@@ -309,7 +369,7 @@ W40_RED_FLAG_PROBES: dict[str, RedFlagProbe] = {
         category=RedFlagCategory.ACUTE_SOB,
         nice_basis="NG89 §1.9 / NG158",
         patient_facing_question=(
-            "Have you had any sudden breathlessness that wasn't there before?"
+            "Have you had any sudden breathlessness today that made you stop what you were doing?"
         ),
         follow_up_escalation=EscalationTier.EMERGENCY_999,
         validation_status=_DRAFT,
@@ -331,13 +391,15 @@ W40_RED_FLAG_PROBES: dict[str, RedFlagProbe] = {
     # present with overlapping signs. Split into three single-observation
     # probes so the trigger condition is clean; each is a distinct
     # clinical event clinicians would want to know about separately.
+    # All use 24-hour change windows or concrete anchors instead of
+    # memory-comparison phrasings.
     "knee_effusion_severe_swelling": RedFlagProbe(
         flag_code="knee_effusion_severe_swelling",
         parent_flag_code="knee_effusion_severe",
         category=RedFlagCategory.PATHWAY_SPECIFIC,
         nice_basis="NG226 §1.8 / QS48",
         patient_facing_question=(
-            "Has the knee suddenly become much more swollen than it was a few days ago?"
+            "Has the knee become noticeably more swollen in the last 24 hours?"
         ),
         follow_up_escalation=EscalationTier.SAME_DAY,
         validation_status=_DRAFT,
@@ -348,7 +410,7 @@ W40_RED_FLAG_PROBES: dict[str, RedFlagProbe] = {
         category=RedFlagCategory.PATHWAY_SPECIFIC,
         nice_basis="NG226 §1.8 / QS48",
         patient_facing_question=(
-            "Has the knee become hot to the touch or noticeably more red than before?"
+            "Has the knee become hot to the touch, or has redness spread beyond the immediate wound area?"
         ),
         follow_up_escalation=EscalationTier.SAME_DAY,
         validation_status=_DRAFT,
@@ -359,7 +421,7 @@ W40_RED_FLAG_PROBES: dict[str, RedFlagProbe] = {
         category=RedFlagCategory.PATHWAY_SPECIFIC,
         nice_basis="NG226 §1.8 / QS48",
         patient_facing_question=(
-            "Has the knee pain suddenly got much worse — out of proportion to what you had before?"
+            "In the last 24 hours, has the knee pain become severe enough to stop you walking, doing your exercises, or sleeping?"
         ),
         follow_up_escalation=EscalationTier.SAME_DAY,
         validation_status=_DRAFT,
