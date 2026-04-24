@@ -467,16 +467,17 @@ H04_REQUIRED_QUESTIONS: list[RequiredQuestion] = [
     _rq(
         "H04",
         "bowel_function_recovery",
-        "Have you been passing wind and opening your bowels, and how is the stool — watery, formed, any blood?",
+        "Have you been farting and pooing, and how is the poo — watery, formed, any blood?",
         [(1, 3), (4, 7), (8, 14), (15, 28), (29, 60)],
         "NG147",
     ),
-    # Stoma RQ phrased so a non-stoma patient can simply answer "I don't
-    # have a stoma" and the voice agent can move on without scoring.
+    # Stoma RQ phrased with "stoma bag" so a non-stoma patient can
+    # simply answer "I don't have a stoma bag" and the voice agent
+    # can move on without scoring.
     _rq(
         "H04",
         "stoma_care",
-        "If you have a stoma — how are you managing the bag changes, how does the skin around it look, and are you getting the output you'd expect?",
+        "If you have a stoma bag — how are you managing the bag changes, how does the skin around it look, and are you getting the amount you'd expect?",
         [(1, 3), (4, 7), (8, 14), (15, 28), (29, 60)],
         "NG147",
     ),
@@ -490,7 +491,7 @@ H04_REQUIRED_QUESTIONS: list[RequiredQuestion] = [
     _rq(
         "H04",
         "diet_and_nutrition",
-        "How is your eating and drinking — tolerating meals, keeping food down, and any change in your weight since you came home?",
+        "How is your eating and drinking — keeping food down, and any change in your weight since you came home?",
         [(1, 3), (4, 7), (8, 14), (15, 28), (29, 60)],
         "NG147",
     ),
@@ -580,7 +581,7 @@ H04_RED_FLAG_PROBES: dict[str, RedFlagProbe] = {
         category=RedFlagCategory.PATHWAY_SPECIFIC,
         nice_basis="NG147",
         patient_facing_question=(
-            "Have you not passed any wind or opened your bowels for more than 24 hours?"
+            "Have you not farted or pooed for more than 24 hours?"
         ),
         follow_up_escalation=EscalationTier.SAME_DAY,
         validation_status=_DRAFT,
@@ -655,8 +656,8 @@ H04_RED_FLAG_PROBES: dict[str, RedFlagProbe] = {
         category=RedFlagCategory.PATHWAY_SPECIFIC,
         nice_basis="NG147 §1.8",
         patient_facing_question=(
-            "If you have a stoma — has there been nothing in the bag for "
-            "more than 24 hours, or has output suddenly stopped?"
+            "If you have a stoma bag — has the bag been empty for more "
+            "than 24 hours, or has it suddenly stopped filling?"
         ),
         follow_up_escalation=EscalationTier.EMERGENCY_999,
         validation_status=_DRAFT,
@@ -667,8 +668,8 @@ H04_RED_FLAG_PROBES: dict[str, RedFlagProbe] = {
         category=RedFlagCategory.HAEMORRHAGE,
         nice_basis="NG147 §1.8",
         patient_facing_question=(
-            "If you have a stoma — is there fresh blood coming from the "
-            "stoma itself, more than a small streak?"
+            "If you have a stoma bag — is there fresh blood coming from "
+            "the opening itself, more than a small streak?"
         ),
         follow_up_escalation=EscalationTier.EMERGENCY_999,
         validation_status=_DRAFT,
@@ -679,9 +680,9 @@ H04_RED_FLAG_PROBES: dict[str, RedFlagProbe] = {
         category=RedFlagCategory.PATHWAY_SPECIFIC,
         nice_basis="NG147 §1.8",
         patient_facing_question=(
-            "If you have a stoma — has the skin around it become raw, "
-            "broken, or bleeding, or has the stoma itself changed shape, "
-            "sunk in, or come further out than usual?"
+            "If you have a stoma bag — has the skin around it become raw, "
+            "broken, or bleeding, or has the opening itself changed shape, "
+            "sunk further in, or come further out in the last 24 hours?"
         ),
         follow_up_escalation=EscalationTier.SAME_DAY,
         validation_status=_DRAFT,
