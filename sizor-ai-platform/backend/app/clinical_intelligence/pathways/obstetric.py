@@ -354,14 +354,18 @@ R17_RED_FLAG_PROBES: dict[str, RedFlagProbe] = {
         # bloody discharge (sign of reopening).
     ),
 
-    # ══ pe_symptoms (pulmonary embolism) — 2 probes ═════════════════════
+    # ══ pe_symptoms (pulmonary embolism) — 3 probes ═════════════════════
     "pe_symptoms_breathing": RedFlagProbe(
         flag_code="pe_symptoms_breathing",
         parent_flag_code="pe_symptoms",
         category=RedFlagCategory.ACUTE_SOB,
         nice_basis="NG89 §1.3 / NG158",
+        # Retroactive wording fix to align with the no-memory-comparison
+        # rule established during W40 drafting. Was: "that wasn't there
+        # before" — memory-comparison phrasing. Now: concrete behavioural
+        # anchor (stopped what you were doing today).
         patient_facing_question=(
-            "Have you had any sudden breathlessness that wasn't there before?"
+            "Have you had any sudden breathlessness today that made you stop what you were doing?"
         ),
         follow_up_escalation=EscalationTier.EMERGENCY_999,
         validation_status=_DRAFT,
@@ -822,8 +826,10 @@ R18_RED_FLAG_PROBES: dict[str, RedFlagProbe] = {
         parent_flag_code="pe_symptoms",
         category=RedFlagCategory.ACUTE_SOB,
         nice_basis="NG89 §1.3 / NG158",
+        # Retroactive wording fix per the no-memory-comparison rule.
+        # Same wording as R17 and W40 pe_symptoms_breathing.
         patient_facing_question=(
-            "Have you had any sudden breathlessness that wasn't there before?"
+            "Have you had any sudden breathlessness today that made you stop what you were doing?"
         ),
         follow_up_escalation=EscalationTier.EMERGENCY_999,
         validation_status=_DRAFT,
