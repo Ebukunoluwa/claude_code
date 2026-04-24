@@ -294,6 +294,9 @@ _NICE basis:_ NG185 / CG172
 - [ ] CLINICAL_REVIEW_NEEDED: compound rule for Phase 4 call-status layer — chest_pain_on_minimal_exertion + any breathlessness or syncope probe firing together suggests crescendo angina / re- infarction and should escalate to EMERGENCY_999.
 - [ ] CLINICAL_REVIEW_NEEDED: K40_CABG inherits K40's new parent code "chest_pain_on_minimal_exertion". Same upstream-map propagation decision applies — reviewer to confirm once for the whole cardiac cluster rather than per-pathway.
 - [ ] CLINICAL_REVIEW_NEEDED: cardiac_arrest_witnessed_collapse uses coverage-check framing because the patient cannot self-report loss of consciousness with no return of pulse. Reviewer to confirm: should this also gate behind an explicit "is anyone with you?" intake flag at the voice-agent layer rather than rely on whoever answers the call?
+- [ ] CLINICAL_REVIEW_NEEDED: K60 chest_pain probes use the same parent codes as K40 / K40_CABG (chest_pain_at_rest + chest_pain_ on_minimal_exertion). Reviewer to confirm whether K60-specific compound rule should exist at Phase 4 — chest pain + breathless- ness at rest + weight gain + new oedema is the acute-on-chronic decompensation picture and warrants EMERGENCY_999.
+- [ ] CLINICAL_REVIEW_NEEDED: anuric_or_oliguria probe uses 12-hour anuria threshold. Reviewer to confirm this is the correct voice- agent threshold (some NG106 local protocols use 8 hours).
+- [ ] CLINICAL_REVIEW_NEEDED: bp_crisis_above_180 probe conditional on home BP monitor. Reviewer to confirm whether the voice agent should offer an in-clinic BP check path for patients without a home monitor (rather than no probe at all).
 
 ## Sign-off
 
