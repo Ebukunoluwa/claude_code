@@ -1063,25 +1063,434 @@ K57_RED_FLAG_PROBES: dict[str, RedFlagProbe] = {
 }
 
 
+# ═══════════════════════════════════════════════════════════════════════
+# K60 — Heart Failure (Chronic HF / Post-Decompensation Discharge)
+# Patient-facing wording audit: 2026-04-24 (new content, audited at draft)
+# ═══════════════════════════════════════════════════════════════════════
+#
+# NICE NG106 post-discharge monitoring. 90-day window, 9 call days
+# front-loaded because readmission risk is highest in first 30 days.
+#
+# Key decisions:
+#   - NG106 red-flag set covers the classic decompensation triad:
+#     2kg in 2 days weight gain, new or increased orthopnoea (glossed
+#     as "needing to prop yourself up on pillows to breathe"), new
+#     ankle swelling. All SAME_DAY. Plus breathlessness at rest and
+#     chest pain which inherit the 999 / SAME_DAY split from K40.
+#   - cardiac_rehab_referral uses coverage-check pattern (referral
+#     tracked by team, not voice agent).
+#   - renal_function domain uses symptom-proxy probes (less pee,
+#     more tired) not blood results — the voice agent has no lab
+#     access. RQ asks about symptoms; the GP team arranges bloods.
+#   - Fluid restriction RQ is a behavioural-adherence check, not a
+#     red flag — K60 patients are on daily 1.5-2L fluid caps.
+
+K60_PLAYBOOK = PathwayPlaybook(
+    opcs_code="K60",
+    label="Heart Failure",
+    category="medical",
+    nice_ids=["CG187", "NG106", "QS9"],
+    monitoring_window_days=90,
+    call_days=[1, 3, 7, 14, 21, 30, 42, 60, 90],
+    domains=[
+        "daily_weight",
+        "breathlessness_nyha",
+        "ankle_swelling",
+        "diuretic_adherence",
+        "fluid_restriction",
+        "renal_function",
+        "blood_pressure",
+        "cardiac_rehab_referral",
+    ],
+    red_flag_codes=[
+        "breathlessness_at_rest",
+        "weight_gain_2kg_2days",
+        "oxygen_saturation_below_92",
+        "chest_pain_at_rest",
+        "chest_pain_on_minimal_exertion",
+        "acute_confusion",
+        "uncontrolled_oedema",
+        "bp_crisis_above_180",
+        "anuric_or_oliguria",
+    ],
+    validation_status=_DRAFT,
+)
+
+
+K60_TRAJECTORIES: list[DomainTrajectoryEntry] = [
+    # daily_weight — NG106 (established habit; red-flag is 2kg in 2 days)
+    _traj("K60", "daily_weight",  1, 1, 2, "Daily weight monitoring established, minor fluctuation expected", "NG106"),
+    _traj("K60", "daily_weight",  3, 1, 1, "Weight stable or reducing with diuretics", "NG106"),
+    _traj("K60", "daily_weight",  7, 1, 1, "Weight stable", "NG106"),
+    _traj("K60", "daily_weight", 14, 1, 1, "Stable weight", "NG106"),
+    _traj("K60", "daily_weight", 21, 1, 1, "Stable — daily weighing habit established", "NG106"),
+    _traj("K60", "daily_weight", 30, 1, 1, "Stable", "NG106"),
+    _traj("K60", "daily_weight", 42, 1, 1, "Stable — lifelong monitoring", "NG106"),
+    _traj("K60", "daily_weight", 60, 1, 1, "Stable — monitoring ongoing", "NG106"),
+    _traj("K60", "daily_weight", 90, 1, 1, "Stable — lifelong", "NG106"),
+
+    # breathlessness_nyha — CG187 (NYHA functional class)
+    _traj("K60", "breathlessness_nyha",  1, 2, 3, "NYHA III expected at discharge — breathlessness on mild exertion", "CG187"),
+    _traj("K60", "breathlessness_nyha",  3, 2, 2, "NYHA II-III — breathlessness reducing", "CG187"),
+    _traj("K60", "breathlessness_nyha",  7, 1, 2, "NYHA II — breathlessness on moderate exertion only", "CG187"),
+    _traj("K60", "breathlessness_nyha", 14, 1, 1, "NYHA I-II — breathlessness only on significant exertion", "CG187"),
+    _traj("K60", "breathlessness_nyha", 21, 1, 1, "NYHA I-II — stable", "CG187"),
+    _traj("K60", "breathlessness_nyha", 30, 1, 1, "NYHA I-II — stable", "CG187"),
+    _traj("K60", "breathlessness_nyha", 42, 0, 1, "NYHA I — near-baseline", "CG187"),
+    _traj("K60", "breathlessness_nyha", 60, 0, 1, "NYHA I — baseline functional class", "CG187"),
+    _traj("K60", "breathlessness_nyha", 90, 0, 1, "NYHA I — baseline", "CG187"),
+
+    # ankle_swelling — NG106
+    _traj("K60", "ankle_swelling",  1, 2, 3, "Ankle/peripheral oedema expected at discharge", "NG106"),
+    _traj("K60", "ankle_swelling",  3, 1, 2, "Oedema reducing with diuretic therapy", "NG106"),
+    _traj("K60", "ankle_swelling",  7, 1, 2, "Reducing oedema — should be improving", "NG106"),
+    _traj("K60", "ankle_swelling", 14, 1, 1, "Minimal residual ankle swelling", "NG106"),
+    _traj("K60", "ankle_swelling", 21, 1, 1, "Stable — minimal or no oedema", "NG106"),
+    _traj("K60", "ankle_swelling", 30, 0, 1, "Resolved or trace", "NG106"),
+    _traj("K60", "ankle_swelling", 42, 0, 1, "Resolved", "NG106"),
+    _traj("K60", "ankle_swelling", 60, 0, 0, "Resolved", "NG106"),
+    _traj("K60", "ankle_swelling", 90, 0, 0, "Resolved", "NG106"),
+
+    # diuretic_adherence — NG106
+    _traj("K60", "diuretic_adherence",  1, 1, 1, "All diuretic doses taken as prescribed", "NG106"),
+    _traj("K60", "diuretic_adherence",  3, 1, 1, "Adherent", "NG106"),
+    _traj("K60", "diuretic_adherence",  7, 1, 1, "Adherent — titration may have occurred", "NG106"),
+    _traj("K60", "diuretic_adherence", 14, 1, 1, "Adherent", "NG106"),
+    _traj("K60", "diuretic_adherence", 21, 1, 1, "Adherent", "NG106"),
+    _traj("K60", "diuretic_adherence", 30, 1, 1, "Adherent — any self-adjustment discussed with team", "NG106"),
+    _traj("K60", "diuretic_adherence", 42, 1, 1, "Adherent — lifelong", "NG106"),
+    _traj("K60", "diuretic_adherence", 60, 1, 1, "Adherent — lifelong", "NG106"),
+    _traj("K60", "diuretic_adherence", 90, 1, 1, "Adherent — lifelong", "NG106"),
+
+    # fluid_restriction — NG106 (1.5-2L/day cap)
+    _traj("K60", "fluid_restriction",  1, 1, 2, "Fluid restriction 1.5-2L/day advised — establishing habit", "NG106"),
+    _traj("K60", "fluid_restriction",  3, 1, 1, "Fluid restriction established", "NG106"),
+    _traj("K60", "fluid_restriction",  7, 1, 1, "Adherent to fluid restriction", "NG106"),
+    _traj("K60", "fluid_restriction", 14, 1, 1, "Adherent", "NG106"),
+    _traj("K60", "fluid_restriction", 21, 1, 1, "Adherent", "NG106"),
+    _traj("K60", "fluid_restriction", 30, 1, 1, "Adherent", "NG106"),
+    _traj("K60", "fluid_restriction", 42, 1, 1, "Adherent — lifelong habit", "NG106"),
+    _traj("K60", "fluid_restriction", 60, 1, 1, "Adherent", "NG106"),
+    _traj("K60", "fluid_restriction", 90, 1, 1, "Adherent", "NG106"),
+
+    # renal_function — NG106 (symptom proxy)
+    _traj("K60", "renal_function",  1, 1, 2, "Mild fatigue acceptable — diuretics may reduce urine output transiently", "NG106"),
+    _traj("K60", "renal_function",  3, 1, 1, "Renal function stabilising", "NG106"),
+    _traj("K60", "renal_function",  7, 1, 1, "Normal urine output restored", "NG106"),
+    _traj("K60", "renal_function", 14, 0, 1, "Stable renal function", "NG106"),
+    _traj("K60", "renal_function", 21, 0, 1, "Stable", "NG106"),
+    _traj("K60", "renal_function", 30, 0, 1, "Stable", "NG106"),
+    _traj("K60", "renal_function", 42, 0, 1, "Stable", "NG106"),
+    _traj("K60", "renal_function", 60, 0, 0, "Stable — ongoing monitoring via bloods", "NG106"),
+    _traj("K60", "renal_function", 90, 0, 0, "Stable", "NG106"),
+
+    # blood_pressure — CG187 (target <130/80)
+    _traj("K60", "blood_pressure",  1, 1, 2, "BP may be labile post-discharge — target <130/80", "CG187"),
+    _traj("K60", "blood_pressure",  3, 1, 2, "BP stabilising on optimised therapy", "CG187"),
+    _traj("K60", "blood_pressure",  7, 1, 1, "BP approaching target range", "CG187"),
+    _traj("K60", "blood_pressure", 14, 1, 1, "BP at or near target", "CG187"),
+    _traj("K60", "blood_pressure", 21, 1, 1, "BP controlled", "CG187"),
+    _traj("K60", "blood_pressure", 30, 1, 1, "BP controlled — target <130/80", "CG187"),
+    _traj("K60", "blood_pressure", 42, 0, 1, "BP stable at target", "CG187"),
+    _traj("K60", "blood_pressure", 60, 0, 1, "BP stable", "CG187"),
+    _traj("K60", "blood_pressure", 90, 0, 1, "BP stable", "CG187"),
+
+    # cardiac_rehab_referral — NG106
+    _traj("K60", "cardiac_rehab_referral",  1, 1, 2, "Cardiac rehab referral should be initiated at discharge", "NG106"),
+    _traj("K60", "cardiac_rehab_referral",  3, 1, 1, "Referral in place — appointment expected", "NG106"),
+    _traj("K60", "cardiac_rehab_referral",  7, 1, 1, "Referred — awaiting first session", "NG106"),
+    _traj("K60", "cardiac_rehab_referral", 14, 1, 1, "Rehab commenced or scheduled", "NG106"),
+    _traj("K60", "cardiac_rehab_referral", 21, 1, 1, "Attending", "NG106"),
+    _traj("K60", "cardiac_rehab_referral", 30, 0, 1, "Attending regularly", "NG106"),
+    _traj("K60", "cardiac_rehab_referral", 42, 0, 1, "Progressing well", "NG106"),
+    _traj("K60", "cardiac_rehab_referral", 60, 0, 0, "Rehab programme completed or ongoing", "NG106"),
+    _traj("K60", "cardiac_rehab_referral", 90, 0, 0, "Completed or ongoing", "NG106"),
+]
+
+
+K60_REQUIRED_QUESTIONS: list[RequiredQuestion] = [
+    # Daily weight is the single most important HF self-monitoring
+    # behaviour. NG106 sets 2kg in 2 days as the decompensation trigger.
+    _rq(
+        "K60",
+        "daily_weight",
+        "Have you been weighing yourself each morning — and what's your weight been today compared to your usual? Any gain of more than a couple of pounds in the last day or two?",
+        [(1, 3), (4, 7), (8, 14), (15, 28), (29, 60), (61, 90)],
+        "NG106 §1.4",
+    ),
+    # First-use gloss for "orthopnoea" as plain-language description.
+    _rq(
+        "K60",
+        "breathlessness_nyha",
+        "How's your breathing today — can you walk around the house, and are you able to lie flat in bed or do you need to prop yourself up on pillows to breathe?",
+        [(1, 3), (4, 7), (8, 14), (15, 28), (29, 60), (61, 90)],
+        "CG187 §1.2",
+    ),
+    _rq(
+        "K60",
+        "ankle_swelling",
+        "Any new or worsening swelling in your ankles, legs, or tummy — any that have come on in the last 24 hours?",
+        [(1, 3), (4, 7), (8, 14), (15, 28), (29, 60)],
+        "NG106 §1.4",
+    ),
+    _rq(
+        "K60",
+        "diuretic_adherence",
+        "Are you managing the water tablets each day — and any dizziness, lightheadedness, or cramping that might go with them?",
+        [(1, 3), (4, 7), (8, 14), (15, 28), (29, 60)],
+        "NG106 §1.5",
+    ),
+    _rq(
+        "K60",
+        "fluid_restriction",
+        "How are you getting on with the daily fluid limit the team set — are you staying under your target each day?",
+        [(1, 3), (4, 7), (8, 14), (15, 28), (29, 60)],
+        "NG106 §1.5",
+    ),
+    # Renal-function RQ asks about symptomatic proxies (less pee, more
+    # tired) rather than blood results. Voice agent has no lab access;
+    # the GP team arranges bloods.
+    _rq(
+        "K60",
+        "renal_function",
+        "How often are you peeing in a day compared to before you were admitted — much less, about the same, or more? Any feeling more tired or muddled than the last call?",
+        [(1, 3), (4, 7), (8, 14), (15, 28), (29, 60)],
+        "NG106 §1.6",
+    ),
+    _rq(
+        "K60",
+        "blood_pressure",
+        "If you're checking your blood pressure at home, what have the readings been in the last few days?",
+        [(1, 3), (4, 7), (8, 14), (15, 28), (29, 60)],
+        "CG187 §1.3",
+    ),
+    # Coverage-check pattern for cardiac rehab.
+    _rq(
+        "K60",
+        "cardiac_rehab_referral",
+        "Has the cardiac rehab team been in touch with you yet — have you started any sessions, or do you know when they'll begin?",
+        [(1, 3), (4, 7), (8, 14), (15, 28), (29, 60), (61, 90)],
+        "NG106 §1.7",
+    ),
+]
+
+
+# ─── K60 Red Flag Probes ───────────────────────────────────────────────
+
+K60_RED_FLAG_PROBES: dict[str, RedFlagProbe] = {
+
+    # ══ breathlessness_at_rest — 2 probes (rest + orthopnoea) ══════════
+    # Orthopnoea (needing to prop up to breathe) is a specific HF
+    # decompensation sign distinct from breathlessness at rest, so
+    # split into two probes. Both 999 — NG106 classifies both as
+    # emergency escalation for decompensating HF.
+    "breathlessness_at_rest": RedFlagProbe(
+        flag_code="breathlessness_at_rest",
+        parent_flag_code="breathlessness_at_rest",
+        category=RedFlagCategory.ACUTE_SOB,
+        nice_basis="NG106 §1.4 / CG187",
+        patient_facing_question=(
+            "Have you been breathless at rest — needing to work hard to "
+            "breathe even while sitting still?"
+        ),
+        follow_up_escalation=EscalationTier.EMERGENCY_999,
+        validation_status=_DRAFT,
+    ),
+    "breathlessness_orthopnoea_new": RedFlagProbe(
+        flag_code="breathlessness_orthopnoea_new",
+        parent_flag_code="breathlessness_at_rest",
+        category=RedFlagCategory.ACUTE_SOB,
+        nice_basis="NG106 §1.4 / CG187",
+        patient_facing_question=(
+            "Have you needed to prop yourself up on more pillows than usual "
+            "to breathe at night, or have you woken up suddenly gasping "
+            "for air, in the last 24 hours?"
+        ),
+        follow_up_escalation=EscalationTier.EMERGENCY_999,
+        validation_status=_DRAFT,
+    ),
+
+    # ══ weight_gain_2kg_2days — 1 probe (NG106 decompensation trigger) ═
+    # Concrete threshold — 2kg (~4.5lb) in 2 days, no memory comparison.
+    "weight_gain_2kg_2days": RedFlagProbe(
+        flag_code="weight_gain_2kg_2days",
+        parent_flag_code="weight_gain_2kg_2days",
+        category=RedFlagCategory.PATHWAY_SPECIFIC,
+        nice_basis="NG106 §1.4",
+        patient_facing_question=(
+            "Have you gained more than about 4 pounds — or 2 kilos — in "
+            "the last two days on your morning weighing?"
+        ),
+        follow_up_escalation=EscalationTier.SAME_DAY,
+        validation_status=_DRAFT,
+    ),
+
+    # ══ oxygen_saturation_below_92 — 1 probe (conditional on oximeter) ═
+    # NG106 alert threshold for HF is <92 (vs <88 for COPD in J44).
+    # Conditional on home equipment — follows the J44 pattern.
+    "oxygen_saturation_below_92": RedFlagProbe(
+        flag_code="oxygen_saturation_below_92",
+        parent_flag_code="oxygen_saturation_below_92",
+        category=RedFlagCategory.PATHWAY_SPECIFIC,
+        nice_basis="NG106 §1.4",
+        patient_facing_question=(
+            "If you have a pulse oximeter at home — that's the little "
+            "finger clip that reads your blood oxygen — has the reading "
+            "been below 92?"
+        ),
+        follow_up_escalation=EscalationTier.SAME_DAY,
+        validation_status=_DRAFT,
+    ),
+
+    # ══ chest_pain — 2 probes (inherited K40 pattern, adapted) ═════════
+    # K60 cohort may have ischaemic HF aetiology; chest pain at rest in
+    # this cohort can signal acute coronary syndrome or acute
+    # decompensation. Rest-pain 999, minimal-exertion SAME_DAY.
+    "chest_pain_at_rest": RedFlagProbe(
+        flag_code="chest_pain_at_rest",
+        parent_flag_code="chest_pain_at_rest",
+        category=RedFlagCategory.CHEST_PAIN,
+        nice_basis="NG106 / NG185",
+        patient_facing_question=(
+            "Have you had chest pain that came on at rest — while sitting "
+            "still, lying down, or not doing anything?"
+        ),
+        follow_up_escalation=EscalationTier.EMERGENCY_999,
+        validation_status=_DRAFT,
+    ),
+    "chest_pain_on_minimal_exertion": RedFlagProbe(
+        flag_code="chest_pain_on_minimal_exertion",
+        parent_flag_code="chest_pain_on_minimal_exertion",
+        category=RedFlagCategory.CHEST_PAIN,
+        nice_basis="NG106 / NG185",
+        patient_facing_question=(
+            "Have you had chest pain come on with a small effort today — "
+            "like standing up from a chair or walking across a room?"
+        ),
+        follow_up_escalation=EscalationTier.SAME_DAY,
+        validation_status=_DRAFT,
+    ),
+
+    # ══ acute_confusion — 1 probe (coverage-check) ═════════════════════
+    # Acute confusion in HF can signal hypoperfusion, hyponatraemia, or
+    # acute-on-chronic kidney injury from diuresis. Coverage-check
+    # framing because patient may not self-detect. SAME_DAY escalation.
+    "acute_confusion_new": RedFlagProbe(
+        flag_code="acute_confusion_new",
+        parent_flag_code="acute_confusion",
+        category=RedFlagCategory.PATHWAY_SPECIFIC,
+        nice_basis="NG106 §1.6",
+        patient_facing_question=(
+            "Has anyone around you noticed you've become more muddled, "
+            "confused, or less sharp than usual in the last 24 hours?"
+        ),
+        follow_up_escalation=EscalationTier.SAME_DAY,
+        validation_status=_DRAFT,
+    ),
+
+    # ══ uncontrolled_oedema — 2 probes ═════════════════════════════════
+    # Sudden worsening of oedema despite diuretic adherence is a
+    # decompensation sign. New-site oedema (tummy / face) is distinct
+    # from ankle-to-leg progression.
+    "oedema_sudden_worsening": RedFlagProbe(
+        flag_code="oedema_sudden_worsening",
+        parent_flag_code="uncontrolled_oedema",
+        category=RedFlagCategory.PATHWAY_SPECIFIC,
+        nice_basis="NG106 §1.4",
+        patient_facing_question=(
+            "Has the swelling in your legs or ankles suddenly got much "
+            "worse in the last 24 hours, even though you've been taking "
+            "the water tablets?"
+        ),
+        follow_up_escalation=EscalationTier.SAME_DAY,
+        validation_status=_DRAFT,
+    ),
+    "oedema_new_site": RedFlagProbe(
+        flag_code="oedema_new_site",
+        parent_flag_code="uncontrolled_oedema",
+        category=RedFlagCategory.PATHWAY_SPECIFIC,
+        nice_basis="NG106 §1.4",
+        patient_facing_question=(
+            "Is there any new swelling in your tummy or around your "
+            "middle, or is your face or hands looking puffy in the last "
+            "24 hours?"
+        ),
+        follow_up_escalation=EscalationTier.SAME_DAY,
+        validation_status=_DRAFT,
+    ),
+
+    # ══ bp_crisis_above_180 — 1 probe (conditional on home BP monitor) ═
+    "bp_crisis_above_180": RedFlagProbe(
+        flag_code="bp_crisis_above_180",
+        parent_flag_code="bp_crisis_above_180",
+        category=RedFlagCategory.PATHWAY_SPECIFIC,
+        nice_basis="CG187 §1.3 / NG136",
+        patient_facing_question=(
+            "If you've been checking your blood pressure at home — has "
+            "the top number been over 180 on any reading in the last 24 "
+            "hours?"
+        ),
+        follow_up_escalation=EscalationTier.SAME_DAY,
+        validation_status=_DRAFT,
+    ),
+
+    # ══ anuric_or_oliguria — 1 probe (symptom-proxy) ═══════════════════
+    # Asks about urine output directly. "Anuric / oliguria" never
+    # patient-facing.
+    "anuric_or_oliguria": RedFlagProbe(
+        flag_code="anuric_or_oliguria",
+        parent_flag_code="anuric_or_oliguria",
+        category=RedFlagCategory.PATHWAY_SPECIFIC,
+        nice_basis="NG106 §1.6",
+        patient_facing_question=(
+            "Have you not peed at all for more than 12 hours, or been "
+            "peeing much less than you normally do despite drinking fluids?"
+        ),
+        follow_up_escalation=EscalationTier.SAME_DAY,
+        validation_status=_DRAFT,
+    ),
+
+    # CLINICAL_REVIEW_NEEDED: K60 chest_pain probes use the same
+    # parent codes as K40 / K40_CABG (chest_pain_at_rest + chest_pain_
+    # on_minimal_exertion). Reviewer to confirm whether K60-specific
+    # compound rule should exist at Phase 4 — chest pain + breathless-
+    # ness at rest + weight gain + new oedema is the acute-on-chronic
+    # decompensation picture and warrants EMERGENCY_999.
+    #
+    # CLINICAL_REVIEW_NEEDED: anuric_or_oliguria probe uses 12-hour
+    # anuria threshold. Reviewer to confirm this is the correct voice-
+    # agent threshold (some NG106 local protocols use 8 hours).
+    #
+    # CLINICAL_REVIEW_NEEDED: bp_crisis_above_180 probe conditional on
+    # home BP monitor. Reviewer to confirm whether the voice agent
+    # should offer an in-clinic BP check path for patients without a
+    # home monitor (rather than no probe at all).
+}
+
+
 # ─── Module-level registries ───────────────────────────────────────────
 
 PATHWAYS: dict[str, PathwayPlaybook] = {
     "K40": K40_PLAYBOOK,
     "K40_CABG": K40_CABG_PLAYBOOK,
     "K57": K57_PLAYBOOK,
+    "K60": K60_PLAYBOOK,
 }
 TRAJECTORIES: dict[str, list[DomainTrajectoryEntry]] = {
     "K40": K40_TRAJECTORIES,
     "K40_CABG": K40_CABG_TRAJECTORIES,
     "K57": K57_TRAJECTORIES,
+    "K60": K60_TRAJECTORIES,
 }
 REQUIRED_QUESTIONS: dict[str, list[RequiredQuestion]] = {
     "K40": K40_REQUIRED_QUESTIONS,
     "K40_CABG": K40_CABG_REQUIRED_QUESTIONS,
     "K57": K57_REQUIRED_QUESTIONS,
+    "K60": K60_REQUIRED_QUESTIONS,
 }
 RED_FLAG_PROBES: dict[str, dict[str, RedFlagProbe]] = {
     "K40": K40_RED_FLAG_PROBES,
     "K40_CABG": K40_CABG_RED_FLAG_PROBES,
     "K57": K57_RED_FLAG_PROBES,
+    "K60": K60_RED_FLAG_PROBES,
 }
