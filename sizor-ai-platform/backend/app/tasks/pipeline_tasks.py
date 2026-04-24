@@ -502,7 +502,8 @@ def process_call(call_id: str):
                         }.items():
                             val = actual.get(generic_domain)
                             if val is not None:
-                                score = max(0, min(4, round(val * 0.4)))
+                                from ..clinical.scoring import score_0_10_to_0_4
+                                score = score_0_10_to_0_4(val)
                                 var_d = variance.get(generic_domain, {})
                                 for pd in pathway_domains:
                                     prev_scores[pd] = {"day": day, "score": score, "ftp_flag": var_d.get("worse", False)}
