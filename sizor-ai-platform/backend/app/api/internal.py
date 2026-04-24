@@ -10,8 +10,8 @@ from sqlalchemy import select, text
 from ..database import get_db
 from ..models import CallSchedule, Patient, PatientMedicalProfile, CallRecord, SOAPNote, ClinicalExtraction, UrgencyFlag, LongitudinalSummary
 from ..config import settings
-from ..clinical.pathway_map import OPCS_TO_NICE_MAP
-from ..clinical.benchmarks import BENCHMARK_DATA
+from ..clinical_intelligence.pathway_map import OPCS_TO_NICE_MAP
+from ..clinical_intelligence.benchmarks import BENCHMARK_DATA
 
 
 def _benchmark_for_day(opcs_code: str, domain: str, day: int):
@@ -236,7 +236,7 @@ async def get_call_context(
         # ALWAYS guarantee a non-null playbook when a pathway is registered.
         # Fill any domain missing from the stored playbook with a template so
         # the voice agent NEVER falls back to the generic assessment script.
-        from ..clinical.playbook import _make_template
+        from ..clinical_intelligence.playbook import _make_template
         playbook_for_day = playbook_for_day or {}
         for _dom in custom_domains:
             if _dom not in playbook_for_day:

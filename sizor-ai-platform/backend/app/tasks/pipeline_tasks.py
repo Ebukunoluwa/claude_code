@@ -23,7 +23,7 @@ from ..services.post_call_pipeline import (
     evaluate_flags, generate_longitudinal_summary,
 )
 from ..services.ftp_service import compute_ftp
-from ..clinical.risk_score import compute_risk_score, breakdown_to_dict
+from ..clinical_intelligence.risk_score import compute_risk_score, breakdown_to_dict
 
 
 def _get_session():
@@ -82,7 +82,7 @@ def process_call(call_id: str):
                     return
 
             # Fetch pathway domains so extraction captures 0-4 domain scores
-            from ..clinical.pathway_map import OPCS_TO_NICE_MAP
+            from ..clinical_intelligence.pathway_map import OPCS_TO_NICE_MAP
             _pw_row = await db.execute(text("""
                 SELECT opcs_code, domains FROM patient_pathways
                 WHERE patient_id = :pid AND active = true
@@ -347,7 +347,7 @@ def process_call(call_id: str):
             # Populates extraction.risk_score for the dashboard to read.
             try:
                 has_red_flag = any(f["severity"] == "red" for f in flags)
-                from ..clinical.smoothing import SmoothedScores
+                from ..clinical_intelligence.smoothing import SmoothedScores
                 smoothed_obj = SmoothedScores(
                     pain=smoothed_state.get("pain"),
                     breathlessness=smoothed_state.get("breathlessness"),
@@ -449,7 +449,7 @@ def process_call(call_id: str):
 
             # ── Task 6: Regenerate playbook for next scheduled call ───────────
             try:
-                from ..clinical.playbook import generate_playbook
+                from ..clinical_intelligence.playbook import generate_playbook
                 from ..services.llm_client import LLMClient
                 from ..services.rag_service import retrieve_nice_context
 
@@ -502,13 +502,13 @@ def process_call(call_id: str):
                         }.items():
                             val = actual.get(generic_domain)
                             if val is not None:
-                                from ..clinical.scoring import score_0_10_to_0_4
+                                from ..clinical_intelligence.scoring import score_0_10_to_0_4
                                 score = score_0_10_to_0_4(val)
                                 var_d = variance.get(generic_domain, {})
                                 for pd in pathway_domains:
                                     prev_scores[pd] = {"day": day, "score": score, "ftp_flag": var_d.get("worse", False)}
 
-                    from ..clinical.pathway_map import OPCS_TO_NICE_MAP
+                    from ..clinical_intelligence.pathway_map import OPCS_TO_NICE_MAP
                     pw_data = OPCS_TO_NICE_MAP.get(opcs_code, {})
                     nice_ids = pw_data.get("nice_ids", [])
 

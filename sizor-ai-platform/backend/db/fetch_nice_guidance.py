@@ -24,7 +24,7 @@ import httpx
 from bs4 import BeautifulSoup
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from app.clinical.pathway_map import OPCS_TO_NICE_MAP
+from app.clinical_intelligence.pathway_map import OPCS_TO_NICE_MAP
 
 DATABASE_URL = os.environ.get(
     "DATABASE_URL",

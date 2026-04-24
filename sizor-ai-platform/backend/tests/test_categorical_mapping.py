@@ -5,7 +5,7 @@ Run: PYTHONPATH=. python -m pytest tests/test_categorical_mapping.py -v
 """
 import pytest
 
-from app.clinical.scoring import score_0_10_to_0_4
+from app.clinical_intelligence.scoring import score_0_10_to_0_4
 
 
 class TestBoundaries:

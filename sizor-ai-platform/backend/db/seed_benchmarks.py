@@ -1,4 +1,4 @@
-"""Seeds domain_benchmarks from clinical/benchmarks.py BENCHMARK_DATA."""
+"""Seeds domain_benchmarks from clinical_intelligence/benchmarks.py BENCHMARK_DATA."""
 import asyncio
 import asyncpg
 import os
@@ -6,7 +6,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.clinical.benchmarks import BENCHMARK_DATA
+from app.clinical_intelligence.benchmarks import BENCHMARK_DATA
 
 
 async def seed(pool):

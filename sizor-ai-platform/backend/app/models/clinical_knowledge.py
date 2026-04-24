@@ -14,7 +14,9 @@ class ClinicalKnowledge(Base):
         default=uuid.uuid4, primary_key=True
     )
     nice_id: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
-    opcs_codes: Mapped[list] = mapped_column(ARRAY(String), default=list)
+    # Declared as TEXT[] in the DB; ARRAY(String) would render VARCHAR[].
+    # Caught by tests/test_orm_db_schema_parity.py.
+    opcs_codes: Mapped[list] = mapped_column(ARRAY(Text), default=list)
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     heading: Mapped[str | None] = mapped_column(Text, nullable=True)
     content: Mapped[str] = mapped_column(Text, nullable=False)

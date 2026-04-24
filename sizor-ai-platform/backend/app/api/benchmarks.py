@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, text
 from ..database import get_db
-from ..clinical.pathway_map import OPCS_TO_NICE_MAP
+from ..clinical_intelligence.pathway_map import OPCS_TO_NICE_MAP
 from .auth import get_current_clinician
 
 router = APIRouter(prefix="/benchmarks", tags=["benchmarks"])

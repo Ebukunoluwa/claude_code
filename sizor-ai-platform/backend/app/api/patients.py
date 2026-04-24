@@ -13,7 +13,7 @@ from .auth import get_current_clinician
 from ..services.nice_guidelines import get_guidelines_for_condition
 from ..services.ftp_service import interpolate_expected
 from ..config import settings
-from ..clinical.pathway_map import OPCS_TO_NICE_MAP
+from ..clinical_intelligence.pathway_map import OPCS_TO_NICE_MAP
 
 router = APIRouter(prefix="/patients", tags=["patients"])
 
@@ -484,7 +484,7 @@ async def update_pathway(
                 import logging as _logging
                 _log = _logging.getLogger(__name__)
                 try:
-                    from ..clinical.playbook import generate_playbook
+                    from ..clinical_intelligence.playbook import generate_playbook
                     from ..services.llm_client import LLMClient
                     from ..services.rag_service import retrieve_nice_context
                     from ..models import DomainBenchmark
@@ -634,7 +634,7 @@ async def get_patient_scores(
             if ext.medication_adherence is not None:
                 raw["adherence"] = 0.0 if ext.medication_adherence else 3.0
 
-            from ..clinical.scoring import score_0_10_to_0_4
+            from ..clinical_intelligence.scoring import score_0_10_to_0_4
             for generic, val in raw.items():
                 if val is None:
                     continue
@@ -793,7 +793,7 @@ async def get_pathway_info(
     if not pw:
         return {"has_pathway": False}
 
-    from ..clinical.pathway_map import OPCS_TO_NICE_MAP
+    from ..clinical_intelligence.pathway_map import OPCS_TO_NICE_MAP
     opcs_code = pw["opcs_code"]
     pw_meta = OPCS_TO_NICE_MAP.get(opcs_code, {})
 
@@ -853,7 +853,7 @@ async def get_call_prompt(
     with NICE benchmark comparisons, and red flags.
     """
     from datetime import date
-    from ..clinical.benchmarks import BENCHMARK_DATA
+    from ..clinical_intelligence.benchmarks import BENCHMARK_DATA
 
     patient_result = await db.execute(
         select(Patient).where(Patient.patient_id == uuid.UUID(patient_id))
@@ -1479,7 +1479,7 @@ async def pathway_register(
         import logging as _logging
         _logger = _logging.getLogger(__name__)
         try:
-            from ..clinical.playbook import generate_playbook
+            from ..clinical_intelligence.playbook import generate_playbook
             from ..services.llm_client import LLMClient
             from ..services.rag_service import retrieve_nice_context
             from ..models import DomainBenchmark

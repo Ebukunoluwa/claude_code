@@ -19,7 +19,7 @@ from ..models import (
     ClinicalExtraction, UrgencyFlag, ClinicianAction, LongitudinalSummary,
 )
 from .auth import get_current_clinician
-from ..clinical.pathway_map import OPCS_TO_NICE_MAP
+from ..clinical_intelligence.pathway_map import OPCS_TO_NICE_MAP
 from ..services.report_service import build_patient_summary_pdf, send_summary_email
 
 router = APIRouter(prefix="/patients", tags=["reports"])

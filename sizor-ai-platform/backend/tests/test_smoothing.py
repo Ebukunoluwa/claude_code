@@ -1,5 +1,5 @@
 """Tests for smoothing. Run from backend/: PYTHONPATH=. python -m pytest tests/test_smoothing.py -v"""
-from app.clinical.smoothing import (
+from app.clinical_intelligence.smoothing import (
     ewma,
     compute_modifiers,
     smooth_extraction,
