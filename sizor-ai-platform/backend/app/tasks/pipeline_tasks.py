@@ -347,7 +347,7 @@ def process_call(call_id: str):
             # Populates extraction.risk_score for the dashboard to read.
             try:
                 has_red_flag = any(f["severity"] == "red" for f in flags)
-                from ..clinical.smoothing import SmoothedScores
+                from ..clinical_intelligence.smoothing import SmoothedScores
                 smoothed_obj = SmoothedScores(
                     pain=smoothed_state.get("pain"),
                     breathlessness=smoothed_state.get("breathlessness"),

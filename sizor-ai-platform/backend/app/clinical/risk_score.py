@@ -39,7 +39,7 @@ from __future__ import annotations
 from dataclasses import dataclass, asdict
 from typing import Literal
 
-from app.clinical.smoothing import SmoothedScores
+from app.clinical_intelligence.smoothing import SmoothedScores
 
 
 # --- Weights (must sum to 1.0) ---

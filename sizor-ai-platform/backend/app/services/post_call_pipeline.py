@@ -2,7 +2,7 @@
 import json
 import re
 from .llm_client import LLMClient
-from app.clinical.smoothing import smooth_extraction, to_persistable_dict
+from app.clinical_intelligence.smoothing import smooth_extraction, to_persistable_dict
 from ..config import settings
 
 
