@@ -464,5 +464,9 @@ class CoverageReport(BaseModel):
         description="asked / expected × 100. None when classifier failed.",
     )
     incomplete_items: list[str] = Field(default_factory=list)
+    # Full parsed classifier output — stored on the ORM row for audit,
+    # never consumed downstream. Empty dict when the classifier failed
+    # or was short-circuited (empty manifest / None opcs).
+    raw_classifier_output: dict = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     model_config = ConfigDict(extra="forbid")

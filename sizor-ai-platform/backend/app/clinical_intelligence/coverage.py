@@ -388,4 +388,5 @@ async def validate_call_coverage(
         socrates_probes_completed=socrates_completed,
         coverage_percentage=coverage_pct,
         incomplete_items=incomplete,
+        raw_classifier_output=parsed,
     )
