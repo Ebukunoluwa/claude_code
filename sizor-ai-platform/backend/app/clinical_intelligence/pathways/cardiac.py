@@ -381,17 +381,385 @@ K40_RED_FLAG_PROBES: dict[str, RedFlagProbe] = {
 }
 
 
+# ═══════════════════════════════════════════════════════════════════════
+# K40_CABG — Coronary Artery Bypass Graft
+# Patient-facing wording audit: 2026-04-24 (new content, audited at draft)
+# ═══════════════════════════════════════════════════════════════════════
+#
+# Key divergences from K40:
+#   - 7 domains (sternal + leg wounds, chest_pain_recurrence, anti-
+#     platelet_adherence, cardiac_rehab_attendance, mood_and_depression,
+#     mobility_and_fatigue). 90-day monitoring window.
+#   - Sternal precautions RQ is a TEMPLATE DEVIATION compound question
+#     (same pattern as W37 hip precautions — sternal precautions are
+#     taught pre-op as a bundled behavioural rule set, asked as a
+#     bundle post-op).
+#   - sternal_wound_breakdown splits into clicking (SAME_DAY —
+#     movement instability without visible gap), discharge (SAME_DAY),
+#     and separation (999 — visible gap indicates emergency).
+#   - cardiac_arrest_signs is by definition observed by others, not
+#     self-reported. Uses coverage-check framing — "has anyone noticed
+#     you collapse or be unresponsive" — at EMERGENCY_999.
+
+K40_CABG_PLAYBOOK = PathwayPlaybook(
+    opcs_code="K40_CABG",
+    label="Coronary Artery Bypass Graft",
+    category="surgical",
+    nice_ids=["NG185", "CG172", "QS99", "NG238"],
+    monitoring_window_days=90,
+    call_days=[1, 3, 7, 14, 21, 28, 42, 60, 90],
+    domains=[
+        "sternal_wound_healing",
+        "leg_wound_healing",
+        "chest_pain_recurrence",
+        "antiplatelet_adherence",
+        "cardiac_rehab_attendance",
+        "mood_and_depression",
+        "mobility_and_fatigue",
+    ],
+    red_flag_codes=[
+        "chest_pain_at_rest",
+        "chest_pain_on_minimal_exertion",
+        "sternal_wound_breakdown",
+        "pe_symptoms",
+        "cardiac_arrest_signs",
+        "sustained_palpitations",
+    ],
+    validation_status=_DRAFT,
+)
+
+
+K40_CABG_TRAJECTORIES: list[DomainTrajectoryEntry] = [
+    # sternal_wound_healing — NG185
+    _traj("K40_CABG", "sternal_wound_healing",  1, 2, 3, "Wound intact, pain expected", "NG185"),
+    _traj("K40_CABG", "sternal_wound_healing",  3, 2, 3, "Healing — monitor for clicking or discharge", "NG185"),
+    _traj("K40_CABG", "sternal_wound_healing",  7, 1, 2, "Healing, sutures/clips in", "NG185"),
+    _traj("K40_CABG", "sternal_wound_healing", 14, 1, 2, "Healing well", "NG185"),
+    _traj("K40_CABG", "sternal_wound_healing", 21, 1, 1, "Well healed", "NG185"),
+    _traj("K40_CABG", "sternal_wound_healing", 28, 0, 1, "Healed", "NG185"),
+    _traj("K40_CABG", "sternal_wound_healing", 42, 0, 1, "Healed", "NG185"),
+    _traj("K40_CABG", "sternal_wound_healing", 60, 0, 0, "Fully healed", "NG185"),
+    _traj("K40_CABG", "sternal_wound_healing", 90, 0, 0, "Fully healed", "NG185"),
+
+    # leg_wound_healing — NG185
+    _traj("K40_CABG", "leg_wound_healing",  1, 2, 3, "Donor site bruising/swelling expected", "NG185"),
+    _traj("K40_CABG", "leg_wound_healing",  3, 2, 3, "Settling", "NG185"),
+    _traj("K40_CABG", "leg_wound_healing",  7, 1, 2, "Healing", "NG185"),
+    _traj("K40_CABG", "leg_wound_healing", 14, 1, 1, "Well healed", "NG185"),
+    _traj("K40_CABG", "leg_wound_healing", 21, 0, 1, "Healed", "NG185"),
+    _traj("K40_CABG", "leg_wound_healing", 28, 0, 1, "Healed", "NG185"),
+    _traj("K40_CABG", "leg_wound_healing", 42, 0, 0, "Healed", "NG185"),
+    _traj("K40_CABG", "leg_wound_healing", 60, 0, 0, "Healed", "NG185"),
+    _traj("K40_CABG", "leg_wound_healing", 90, 0, 0, "Healed", "NG185"),
+
+    # chest_pain_recurrence — CG172
+    _traj("K40_CABG", "chest_pain_recurrence",  1, 2, 3, "Musculoskeletal chest pain expected", "NG185"),
+    _traj("K40_CABG", "chest_pain_recurrence",  3, 2, 2, "Reducing sternal pain", "NG185"),
+    _traj("K40_CABG", "chest_pain_recurrence",  7, 1, 2, "Mild musculoskeletal pain only", "NG185"),
+    _traj("K40_CABG", "chest_pain_recurrence", 14, 1, 2, "Minimal pain", "NG185"),
+    _traj("K40_CABG", "chest_pain_recurrence", 21, 1, 1, "Resolving", "CG172"),
+    _traj("K40_CABG", "chest_pain_recurrence", 28, 0, 1, "Resolved", "CG172"),
+    _traj("K40_CABG", "chest_pain_recurrence", 42, 0, 1, "Resolved", "CG172"),
+    _traj("K40_CABG", "chest_pain_recurrence", 60, 0, 0, "Resolved", "CG172"),
+    _traj("K40_CABG", "chest_pain_recurrence", 90, 0, 0, "Resolved", "CG172"),
+
+    # antiplatelet_adherence — CG172
+    _traj("K40_CABG", "antiplatelet_adherence",  1, 1, 1, "Aspirin commenced", "CG172"),
+    _traj("K40_CABG", "antiplatelet_adherence",  3, 1, 1, "Adherent", "CG172"),
+    _traj("K40_CABG", "antiplatelet_adherence",  7, 1, 1, "Adherent — lifelong", "CG172"),
+    _traj("K40_CABG", "antiplatelet_adherence", 14, 1, 1, "Adherent", "CG172"),
+    _traj("K40_CABG", "antiplatelet_adherence", 21, 1, 1, "Adherent", "CG172"),
+    _traj("K40_CABG", "antiplatelet_adherence", 28, 1, 1, "Adherent", "CG172"),
+    _traj("K40_CABG", "antiplatelet_adherence", 42, 1, 1, "Adherent", "CG172"),
+    _traj("K40_CABG", "antiplatelet_adherence", 60, 1, 1, "Adherent", "CG172"),
+    _traj("K40_CABG", "antiplatelet_adherence", 90, 1, 1, "Adherent — lifelong", "CG172"),
+
+    # cardiac_rehab_attendance — NG238
+    _traj("K40_CABG", "cardiac_rehab_attendance",  1, 1, 2, "Referral made", "NG238"),
+    _traj("K40_CABG", "cardiac_rehab_attendance",  3, 1, 2, "Awaiting start", "NG238"),
+    _traj("K40_CABG", "cardiac_rehab_attendance",  7, 1, 1, "Programme started or imminent", "NG238"),
+    _traj("K40_CABG", "cardiac_rehab_attendance", 14, 1, 1, "Attending", "NG238"),
+    _traj("K40_CABG", "cardiac_rehab_attendance", 21, 1, 1, "Attending", "NG238"),
+    _traj("K40_CABG", "cardiac_rehab_attendance", 28, 1, 1, "Attending", "NG238"),
+    _traj("K40_CABG", "cardiac_rehab_attendance", 42, 1, 1, "Ongoing", "NG238"),
+    _traj("K40_CABG", "cardiac_rehab_attendance", 60, 1, 1, "Ongoing", "NG238"),
+    _traj("K40_CABG", "cardiac_rehab_attendance", 90, 0, 1, "Programme completing", "NG238"),
+
+    # mood_and_depression — CG172 (depression peak weeks 1-4 post-CABG)
+    _traj("K40_CABG", "mood_and_depression",  1, 1, 2, "Low mood common post-CABG", "CG172"),
+    _traj("K40_CABG", "mood_and_depression",  3, 1, 2, "Monitor for depression", "CG172"),
+    _traj("K40_CABG", "mood_and_depression",  7, 1, 2, "Depression risk peak week 1-4", "CG172"),
+    _traj("K40_CABG", "mood_and_depression", 14, 1, 2, "Screen for depression", "CG172"),
+    _traj("K40_CABG", "mood_and_depression", 21, 1, 1, "Improving mood expected", "CG172"),
+    _traj("K40_CABG", "mood_and_depression", 28, 1, 1, "Mood stabilising", "CG172"),
+    _traj("K40_CABG", "mood_and_depression", 42, 1, 1, "Mood improving", "CG172"),
+    _traj("K40_CABG", "mood_and_depression", 60, 0, 1, "Near-baseline mood", "CG172"),
+    _traj("K40_CABG", "mood_and_depression", 90, 0, 1, "Near-baseline mood", "CG172"),
+
+    # mobility_and_fatigue — NG185
+    _traj("K40_CABG", "mobility_and_fatigue",  1, 2, 3, "Marked fatigue expected", "NG185"),
+    _traj("K40_CABG", "mobility_and_fatigue",  3, 2, 3, "Fatigue high", "NG185"),
+    _traj("K40_CABG", "mobility_and_fatigue",  7, 2, 2, "Gradually improving", "NG185"),
+    _traj("K40_CABG", "mobility_and_fatigue", 14, 1, 2, "Improving", "NG185"),
+    _traj("K40_CABG", "mobility_and_fatigue", 21, 1, 2, "Walking short distances", "NG185"),
+    _traj("K40_CABG", "mobility_and_fatigue", 28, 1, 1, "Increasing activity", "NG185"),
+    _traj("K40_CABG", "mobility_and_fatigue", 42, 1, 1, "Good activity levels", "NG185"),
+    _traj("K40_CABG", "mobility_and_fatigue", 60, 0, 1, "Near-normal activity", "NG185"),
+    _traj("K40_CABG", "mobility_and_fatigue", 90, 0, 1, "Near-normal activity", "NG185"),
+]
+
+
+K40_CABG_REQUIRED_QUESTIONS: list[RequiredQuestion] = [
+    _rq(
+        "K40_CABG",
+        "sternal_wound_healing",
+        "How is the scar on your chest looking — any redness spreading beyond the immediate scar area, any swelling that's worse in the last 24 hours, or fluid coming from it?",
+        [(1, 3), (4, 7), (8, 14), (15, 28)],
+        "NG185 / QS48",
+    ),
+    _rq(
+        "K40_CABG",
+        "leg_wound_healing",
+        "How is the scar on your leg looking — the place where they took the vein — any redness, swelling, or fluid from it?",
+        [(1, 3), (4, 7), (8, 14), (15, 28)],
+        "NG185 / QS48",
+    ),
+    # Chest pain recurrence RQ distinguishes musculoskeletal/sternal
+    # clicking from cardiac-pattern pain. The latter triggers the
+    # red-flag probes.
+    _rq(
+        "K40_CABG",
+        "chest_pain_recurrence",
+        "Any chest pain or discomfort in the last 24 hours — including the 'clicking' feeling some people get from the chest bone, and any tight, crushing, or central chest pain?",
+        [(1, 3), (4, 7), (8, 14), (15, 28), (29, 60), (61, 90)],
+        "NG185 §1.3",
+    ),
+    # TEMPLATE DEVIATION — compound phrasing by design. Sternal
+    # precautions are taught pre-op as a bundled behavioural rule set
+    # (no lifting over 5lb, no pushing/pulling heavy doors, not
+    # reaching both arms out at once, no driving for ~6 weeks) and
+    # reinforced post-op as a bundle. Splitting into four separate
+    # RQs (one per precaution) would fragment a single clinical
+    # concept the patient already holds as one thing. Same reasoning
+    # and conscious exception status as W37 hip precautions.
+    _rq(
+        "K40_CABG",
+        "sternal_wound_healing",
+        "Are you keeping to the sternal precautions — not lifting anything over about 5 pounds, not pushing or pulling heavy doors, not reaching both arms out at once, and not driving yet?",
+        [(1, 3), (4, 7), (8, 14), (15, 28)],
+        "NG185 §1.5",
+    ),
+    _rq(
+        "K40_CABG",
+        "antiplatelet_adherence",
+        "Are you taking your aspirin each day as a heart blood-thinner, and any side effects like stomach upset or unusual bruising?",
+        [(1, 3), (4, 7), (8, 14), (15, 28), (29, 60)],
+        "CG172 §1.7",
+    ),
+    _rq(
+        "K40_CABG",
+        "cardiac_rehab_attendance",
+        "Has the cardiac rehab team been in touch with you — have you started any sessions yet, or do you know when they'll begin?",
+        [(1, 3), (4, 7), (8, 14), (15, 28), (29, 60), (61, 90)],
+        "NG238 §1.1",
+    ),
+    _rq(
+        "K40_CABG",
+        "mood_and_depression",
+        "How's your mood been since the operation — any low feelings, worry, or trouble getting motivated to do the things you normally would?",
+        [(4, 7), (8, 14), (15, 28), (29, 60)],
+        "CG172 §1.4",
+    ),
+    _rq(
+        "K40_CABG",
+        "mobility_and_fatigue",
+        "How's your energy been — can you walk around the house, manage stairs, and are you finding day-to-day tasks getting easier?",
+        [(1, 3), (4, 7), (8, 14), (15, 28), (29, 60), (61, 90)],
+        "NG185 §1.5",
+    ),
+]
+
+
+# ─── K40_CABG Red Flag Probes ──────────────────────────────────────────
+
+K40_CABG_RED_FLAG_PROBES: dict[str, RedFlagProbe] = {
+
+    # ══ chest_pain — 2 probes (same split as K40) ══════════════════════
+    # Post-CABG chest pain differentiation: musculoskeletal sternal
+    # pain is expected and not red-flagged. Red-flag pattern is central,
+    # crushing, radiating, or at-rest. Wording focuses on the pattern
+    # signals rather than severity.
+    "chest_pain_at_rest": RedFlagProbe(
+        flag_code="chest_pain_at_rest",
+        parent_flag_code="chest_pain_at_rest",
+        category=RedFlagCategory.CHEST_PAIN,
+        nice_basis="NG185 §1.3 / CG172",
+        patient_facing_question=(
+            "Have you had chest pain that came on at rest — while sitting "
+            "still, lying down, or not doing anything — and felt tight, "
+            "crushing, or central rather than a sharp or sternal ache?"
+        ),
+        follow_up_escalation=EscalationTier.EMERGENCY_999,
+        validation_status=_DRAFT,
+    ),
+    "chest_pain_on_minimal_exertion": RedFlagProbe(
+        flag_code="chest_pain_on_minimal_exertion",
+        parent_flag_code="chest_pain_on_minimal_exertion",
+        category=RedFlagCategory.CHEST_PAIN,
+        nice_basis="NG185 §1.3 / CG172",
+        patient_facing_question=(
+            "Have you had chest pain come on with a small effort today — "
+            "like standing up from a chair, walking across a room, or "
+            "climbing one flight of stairs — and felt tight or crushing "
+            "rather than a sternal ache?"
+        ),
+        follow_up_escalation=EscalationTier.SAME_DAY,
+        validation_status=_DRAFT,
+    ),
+
+    # ══ sternal_wound_breakdown — 3 probes ═════════════════════════════
+    # Sternal non-union / dehiscence: three distinct clinical findings
+    # with graded escalation:
+    #   - clicking / grinding (sternal instability, no visible break)
+    #     → SAME_DAY
+    #   - discharge → SAME_DAY
+    #   - visible separation (breast bone coming apart) → EMERGENCY_999
+    "sternal_wound_clicking": RedFlagProbe(
+        flag_code="sternal_wound_clicking",
+        parent_flag_code="sternal_wound_breakdown",
+        category=RedFlagCategory.PATHWAY_SPECIFIC,
+        nice_basis="NG185 §1.5",
+        patient_facing_question=(
+            "Can you feel any clicking, grinding, or moving feeling in "
+            "your breast bone when you cough, take a deep breath, or "
+            "turn in bed?"
+        ),
+        follow_up_escalation=EscalationTier.SAME_DAY,
+        validation_status=_DRAFT,
+    ),
+    "sternal_wound_discharge": RedFlagProbe(
+        flag_code="sternal_wound_discharge",
+        parent_flag_code="sternal_wound_breakdown",
+        category=RedFlagCategory.PATHWAY_SPECIFIC,
+        nice_basis="NG185 §1.5 / QS48",
+        patient_facing_question=(
+            "Is there any pus or bloody fluid coming from the chest scar?"
+        ),
+        follow_up_escalation=EscalationTier.SAME_DAY,
+        validation_status=_DRAFT,
+    ),
+    "sternal_wound_separation": RedFlagProbe(
+        flag_code="sternal_wound_separation",
+        parent_flag_code="sternal_wound_breakdown",
+        category=RedFlagCategory.PATHWAY_SPECIFIC,
+        nice_basis="NG185 §1.5",
+        patient_facing_question=(
+            "Has the scar on your chest opened up — with a visible gap "
+            "between the edges, or can you see the breast bone underneath?"
+        ),
+        follow_up_escalation=EscalationTier.EMERGENCY_999,
+        validation_status=_DRAFT,
+    ),
+
+    # ══ pe_symptoms — 2 probes ═════════════════════════════════════════
+    "pe_symptoms_breathing": RedFlagProbe(
+        flag_code="pe_symptoms_breathing",
+        parent_flag_code="pe_symptoms",
+        category=RedFlagCategory.ACUTE_SOB,
+        nice_basis="NG89 §1.3 / NG158",
+        patient_facing_question=(
+            "Have you had any sudden breathlessness today that made you stop what you were doing?"
+        ),
+        follow_up_escalation=EscalationTier.EMERGENCY_999,
+        validation_status=_DRAFT,
+    ),
+    "pe_symptoms_chest_pain": RedFlagProbe(
+        flag_code="pe_symptoms_chest_pain",
+        parent_flag_code="pe_symptoms",
+        category=RedFlagCategory.CHEST_PAIN,
+        nice_basis="NG89 §1.3 / NG158",
+        patient_facing_question=(
+            "Any sharp chest pain on one side — especially when you breathe in deeply?"
+        ),
+        follow_up_escalation=EscalationTier.EMERGENCY_999,
+        validation_status=_DRAFT,
+    ),
+
+    # ══ cardiac_arrest_signs — 1 probe (coverage-check, carer-observed) ═
+    # Cardiac arrest is by definition observed by others, not self-
+    # reported. Probe uses carer-observed framing. If the answer is
+    # yes, the event already happened — patient is answering after
+    # recovery or the family is answering on behalf.
+    "cardiac_arrest_witnessed_collapse": RedFlagProbe(
+        flag_code="cardiac_arrest_witnessed_collapse",
+        parent_flag_code="cardiac_arrest_signs",
+        category=RedFlagCategory.PATHWAY_SPECIFIC,
+        nice_basis="NG185 / CG172",
+        patient_facing_question=(
+            "Has anyone around you — family, carer, or neighbour — found "
+            "you collapsed and unresponsive in the last few days, or had "
+            "to call for emergency help for you?"
+        ),
+        follow_up_escalation=EscalationTier.EMERGENCY_999,
+        validation_status=_DRAFT,
+    ),
+
+    # ══ sustained_palpitations — 2 probes (same pattern as K40) ════════
+    "palpitations_sustained": RedFlagProbe(
+        flag_code="palpitations_sustained",
+        parent_flag_code="sustained_palpitations",
+        category=RedFlagCategory.PATHWAY_SPECIFIC,
+        nice_basis="NG185 / CG172",
+        patient_facing_question=(
+            "Have you had any sudden fluttering or racing heartbeat — "
+            "palpitations — that lasted more than about half an hour, or "
+            "that kept coming back today?"
+        ),
+        follow_up_escalation=EscalationTier.SAME_DAY,
+        validation_status=_DRAFT,
+    ),
+    "palpitations_with_red_flag_symptoms": RedFlagProbe(
+        flag_code="palpitations_with_red_flag_symptoms",
+        parent_flag_code="sustained_palpitations",
+        category=RedFlagCategory.PATHWAY_SPECIFIC,
+        nice_basis="NG185 / CG172",
+        patient_facing_question=(
+            "When the fluttering or racing happened, did you also get "
+            "chest pain, breathlessness, or feel like you might pass out?"
+        ),
+        follow_up_escalation=EscalationTier.EMERGENCY_999,
+        validation_status=_DRAFT,
+    ),
+
+    # CLINICAL_REVIEW_NEEDED: K40_CABG inherits K40's new parent code
+    # "chest_pain_on_minimal_exertion". Same upstream-map propagation
+    # decision applies — reviewer to confirm once for the whole cardiac
+    # cluster rather than per-pathway.
+    #
+    # CLINICAL_REVIEW_NEEDED: cardiac_arrest_witnessed_collapse uses
+    # coverage-check framing because the patient cannot self-report
+    # loss of consciousness with no return of pulse. Reviewer to
+    # confirm: should this also gate behind an explicit "is anyone
+    # with you?" intake flag at the voice-agent layer rather than
+    # rely on whoever answers the call?
+}
+
+
 # ─── Module-level registries ───────────────────────────────────────────
 
 PATHWAYS: dict[str, PathwayPlaybook] = {
     "K40": K40_PLAYBOOK,
+    "K40_CABG": K40_CABG_PLAYBOOK,
 }
 TRAJECTORIES: dict[str, list[DomainTrajectoryEntry]] = {
     "K40": K40_TRAJECTORIES,
+    "K40_CABG": K40_CABG_TRAJECTORIES,
 }
 REQUIRED_QUESTIONS: dict[str, list[RequiredQuestion]] = {
     "K40": K40_REQUIRED_QUESTIONS,
+    "K40_CABG": K40_CABG_REQUIRED_QUESTIONS,
 }
 RED_FLAG_PROBES: dict[str, dict[str, RedFlagProbe]] = {
     "K40": K40_RED_FLAG_PROBES,
+    "K40_CABG": K40_CABG_RED_FLAG_PROBES,
 }
