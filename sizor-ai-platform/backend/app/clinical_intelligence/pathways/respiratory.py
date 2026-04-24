@@ -176,10 +176,13 @@ def _rq(
 
 
 J44_REQUIRED_QUESTIONS: list[RequiredQuestion] = [
-    # All-window breathlessness screen (chronic baseline tracking)
+    # All-window breathlessness screen (chronic baseline tracking).
+    # Previous wording used a memory-comparison ("compared to before
+    # this flare-up"). Now uses concrete functional anchors that
+    # produce a stable answer today regardless of baseline recall.
     _rq(
         "breathlessness_score",
-        "How breathless are you today compared to before this flare-up — back to your usual, worse, or somewhere in between?",
+        "How is your breathing today — can you get around the house, walk to the kitchen, and manage stairs without stopping to catch your breath?",
         [(1, 3), (4, 7), (8, 14), (15, 28), (29, 60)],
         "NG115 §1.2",
     ),
@@ -197,9 +200,11 @@ J44_REQUIRED_QUESTIONS: list[RequiredQuestion] = [
         [(1, 3), (4, 7), (8, 14), (15, 28)],
         "NG115 §1.3",
     ),
+    # Inline gloss of "pulse oximeter" on first use in this pathway.
+    # Subsequent mentions (in the red-flag probe) can remain bare.
     _rq(
         "oxygen_saturation",
-        "If you have a pulse oximeter at home, what reading have you been getting?",
+        "If you have a pulse oximeter at home — that's the little finger clip that reads your blood oxygen — what reading have you been getting?",
         [(1, 3), (4, 7), (8, 14)],
         "NG115 §1.5",
     ),
@@ -212,10 +217,12 @@ J44_REQUIRED_QUESTIONS: list[RequiredQuestion] = [
         "NG115 §1.4",
     ),
 
-    # Day 8-14 onwards: PR engagement
+    # Day 8-14 onwards: PR engagement. First use glosses "pulmonary
+    # rehab" as the specialist breathing rehabilitation programme;
+    # follow-up uses the patient-familiar shorthand.
     _rq(
         "pulmonary_rehab_referral",
-        "Have you heard back about pulmonary rehab — or started the programme yet?",
+        "Have you heard back about pulmonary rehab — the specialist breathing rehabilitation programme — or started it yet?",
         [(8, 14), (15, 28)],
         "NG115 §1.6",
     ),
