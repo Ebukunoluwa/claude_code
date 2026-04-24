@@ -2,9 +2,563 @@
 
 **Scope:** `sizor-ai-platform/backend/` only.
 
-**Current phase:** **Phase 2.5** — trajectory integrity. Phase 2 (consolidation + models + scoring refactor + validation) merged to `main` at `43dfd94`. Orphan-drop (`c2e4a6f801b3`) pushed on a separate branch, PR pending. Phase 1 (data integrity) is applied to dev; its record is archived at the bottom of this document.
+**Current phase:** **Phase 3** — clinical content drafting. Phases 1, 2, 2.5, and the orphan-drop all merged to `main`; `main` HEAD at `7b7ba8e` (Phase 2.5 merge commit). Previous phases archived below.
 
-**Gate:** no code until the Phase 2.5 additions below are approved. Same pattern as Phase 1 and Phase 2.
+**Gate:** no clinical content gets drafted until the Phase 3 plan below is approved. Same pattern as Phase 1, Phase 2, Phase 2.5.
+
+---
+
+## Phase 3 — Clinical content (7 items of plan + 3 Qs)
+
+**Branch:** `phase-3-clinical-content`
+**Base:** `main` at `7b7ba8e` (post Phase 2.5 merge).
+
+### Framing correction — "7 missing pathways" is imprecise
+
+The original brief framed seven pathways (W38, K40_CABG, K57, S01, H04, H01, Z03_MH) as lacking NICE trajectory data. Verified on disk:
+
+- `app/clinical_intelligence/benchmarks.py` already has per-day trajectory tuples `(expected, upper_bound, label, nice_source)` for **all 15** active pathways plus 10 others. No pathway is missing trajectory content.
+- The legacy `PLAYBOOKS` dict (in the voice-agent monolith at `healthcare-voice-agent/agent/clinical_intelligence.py`) has metadata (`label`, `category`, `nice_ids`, `monitoring_window_days`, `call_days`, `domains`, `red_flags`) for all 15.
+
+**What is genuinely missing:**
+
+1. **Required Questions Manifest** — a per-pathway, per-day-band list of questions Sarah MUST cover. New concept introduced by this refactor. Zero content anywhere today.
+2. **Patient-facing red flag probe wording** — the machine-readable `red_flags` codes exist (e.g. `wound_dehiscence`, `postpartum_haemorrhage`), but there is no patient-plain-English question phrasing stored. Zero content today.
+3. **The per-cluster Python file structure** in `app/clinical_intelligence/pathways/` — the content exists in two separate sources (benchmarks.py + monolith) but isn't organised into the per-cluster `cardiac.py` / `obstetric.py` / etc. files that the brief's target architecture calls for.
+4. **`validation_status` tagging** on every piece of clinical content — existing trajectories have no review status. Per the Phase 2 Pydantic models, every clinical-content entry must carry `validation_status="draft_awaiting_clinical_review"` by default.
+5. **Thin or suspicious entries that need CLINICAL_REVIEW_NEEDED flags** — a subset of existing trajectory rows are likely stubs or rough guesses. These need explicit flags so the reviewing clinician knows to check them first, rather than treating the draft as equally confident across all rows.
+
+Phase 3 therefore **ports + restructures + annotates** existing content (not "creates from scratch for 7 pathways"), and **drafts net-new** Required Questions Manifests and Red Flag Probes for all 15.
+
+### 1. Per-pathway sourcing + reviewer specialty + known uncertainty
+
+Ordered by clinical cluster. The "estimated trajectory rows" count is approximate based on the existing benchmarks data structure (domains × call_days).
+
+| OPCS | Label | Primary NICE | Reviewer specialty | Est. trajectory rows | Known CLINICAL_REVIEW_NEEDED areas |
+|---|---|---|---|---|---|
+| W37 | Total Hip Replacement | NG226, TA455, QS48, QS89 | Orthopaedic surgeon | ~48 | VTE duration (28d vs 35d); mobility timeline day 14-21. |
+| W38 | Hip Fracture / Hemiarthroplasty | NG124, NG226, QS16 | Orthopaedic surgeon / geriatrician | ~48 | Delirium screening cadence; falls-risk trajectory day 28+; VTE post-op duration. |
+| W40 | Total Knee Replacement | NG226, TA304, QS48, QS89 | Orthopaedic surgeon | ~48 | Physio compliance expected curve; knee ROM timeline. |
+| W43 | Unicompartmental Knee Replacement | NG226, QS48, QS89 | Orthopaedic surgeon | ~40 | Recovery timeline — generally faster than W40; existing trajectory may be too conservative. |
+| K40 | Myocardial Infarction / ACS | NG185, QS99, CG172 | Cardiologist | ~54 | Dual antiplatelet duration; exercise tolerance day 14-28. |
+| K40_CABG | Coronary Artery Bypass Graft | NG185, CG172, QS99, NG238 | Cardiothoracic surgeon | ~63 | Sternal precautions window; wound healing (sternal + leg harvest); arrhythmia monitoring. |
+| K57 | Atrial Fibrillation | NG196, QS93, TA249 | Cardiologist | ~40 | Anticoagulation adherence; rate-control symptoms; stroke risk if non-adherent. |
+| K60 | Heart Failure | CG187, NG106, QS9 | Cardiologist / HF specialist nurse | ~56 | Fluid balance; weight monitoring cadence; diuretic titration. |
+| R17 | Elective Caesarean Section | NG192, QS32, NG194, NG89 | Obstetrician / community midwife | ~56 | Lochia duration outliers; postnatal depression screen timing (day 10-14 vs 6wk). |
+| R18 | Emergency Caesarean Section | NG192, NG194, QS32 | Obstetrician / community midwife | ~56 | Emotional recovery trajectory (PTSD screen); same as R17 plus trauma-aware items. |
+| J44 | COPD Exacerbation | NG115, QS10 | Respiratory physician / COPD nurse | ~42 | Oxygen saturation trigger thresholds; antibiotic/steroid adherence. |
+| S01 | Stroke / Ischaemic | NG128, CG162, QS2, NG185 | Stroke physician / neurologist | ~72 | Speech/language timeline; mood trajectory post-stroke; secondary prevention adherence. |
+| H04 | Colectomy / Bowel Surgery | NG147, QS48, NG89 | Colorectal surgeon | ~48 | Stoma care (if present); bowel function return; ERAS pathway adherence. |
+| H01 | Appendectomy | NG61, QS48 | General surgeon | ~28 | Fast recovery — existing benchmarks may be too cautious; confirm day-14 expected=0. |
+| Z03_MH | Acute Psychiatric Admission | CG136, NG10, QS80 | Psychiatrist (sign-off required) | N/A — scaffold only | **All content** — trajectories deliberately not ported, see §2. |
+
+### 2. Z03_MH scaffold-only confirmation
+
+Per original brief and user's Phase 3 direction. Confirmed file structure for `app/clinical_intelligence/pathways/mental_health.py`:
+
+```python
+"""Z03_MH — Acute Psychiatric Admission.
+
+SCAFFOLD ONLY. All clinical probe content, trajectories, and red flag
+wording are deliberately absent pending explicit sign-off from a
+mental-health clinician. Importing this module must not raise, but any
+function that would render a patient-facing prompt for Z03_MH must
+refuse until the TODO_AWAITING_MENTAL_HEALTH_CLINICIAN_SIGNOFF markers
+are resolved by clinical content substitution.
+"""
+from ..models import PathwayPlaybook, ValidationStatus
+
+Z03_MH_PLAYBOOK = PathwayPlaybook(
+    opcs_code="Z03_MH",
+    label="Acute Psychiatric Admission",
+    category="mental_health",
+    nice_ids=["CG136", "NG10", "QS80"],
+    monitoring_window_days=90,
+    call_days=[1, 3, 7, 14, 21, 28, 42, 60, 90],
+    domains=[
+        "medication_adherence",
+        "mood_and_mental_state",
+        "safety_and_safeguarding",
+        "community_team_engagement",
+        "crisis_plan_awareness",
+        "social_support_and_daily_living",
+        "substance_use_screen",
+    ],
+    red_flag_codes=[
+        "suicidal_ideation",
+        "psychotic_relapse",
+        "safeguarding_concern",
+        "medication_non_adherence_critical",
+    ],
+    validation_status="draft_awaiting_clinical_review",
+)
+
+TRAJECTORIES: dict = {}        # TODO_AWAITING_MENTAL_HEALTH_CLINICIAN_SIGNOFF
+REQUIRED_QUESTIONS: list = []  # TODO_AWAITING_MENTAL_HEALTH_CLINICIAN_SIGNOFF
+RED_FLAG_PROBES: dict = {}     # TODO_AWAITING_MENTAL_HEALTH_CLINICIAN_SIGNOFF
+
+
+def build_prompt(*args, **kwargs):
+    raise NotImplementedError(
+        "Z03_MH prompts are unavailable until clinical content sign-off "
+        "replaces the TODO_AWAITING_MENTAL_HEALTH_CLINICIAN_SIGNOFF markers."
+    )
+```
+
+Existing `benchmarks.py` Z03_MH trajectory rows are **not** deleted (they're referenced for historical audit), but `mental_health.py` **does not import them**. Phase 3's per-cluster Python structure treats Z03_MH as content-free by design.
+
+### 3. Required Questions Manifest plan
+
+**Structure — one `RequiredQuestion` per (pathway, domain, day-band, question) tuple.** Standard day bands:
+
+- Day 1-3 (immediate post-discharge — safety/red-flag-heavy)
+- Day 4-7 (early recovery — function + adherence)
+- Day 8-14 (consolidation — any persisting concerns)
+- Day 15-30 (longer-term — psychosocial + secondary prevention)
+- Day 31+ (routine check / closeout — pathway-dependent end point)
+
+Some pathways end their monitoring window before 31 — omit the later bands there (H01 ends at day 28; R17/R18 at day 42; others at 60 or 90). Day bands align with pathway `call_days` lists — a manifest row is only `required=True` for bands that overlap with actual call days.
+
+**Worked example — R17 (Elective Caesarean Section):**
+
+```python
+# app/clinical_intelligence/pathways/obstetric.py (partial — R17 Required Questions)
+R17_REQUIRED_QUESTIONS = [
+    # ──────────── Day 1-3 ────────────
+    RequiredQuestion(
+        opcs_code="R17",
+        domain="wound_healing",
+        question_text="How is the wound site looking — any redness, swelling, or discharge?",
+        required=True,
+        day_ranges=[(1, 3), (4, 7)],
+        nice_basis="NG192 §1.5.3",
+        validation_status="draft_awaiting_clinical_review",
+    ),
+    RequiredQuestion(
+        opcs_code="R17",
+        domain="lochia_monitoring",
+        question_text="How is your bleeding — how much are you losing, what colour, any clots?",
+        required=True,
+        day_ranges=[(1, 3), (4, 7), (8, 14)],
+        nice_basis="NG192 §1.5.8",
+        validation_status="draft_awaiting_clinical_review",
+    ),
+    RequiredQuestion(
+        opcs_code="R17",
+        domain="pain_management",
+        question_text="How are you managing pain — are the painkillers helping enough to move around and care for the baby?",
+        required=True,
+        day_ranges=[(1, 3), (4, 7)],
+        nice_basis="NG192 §1.6",
+        validation_status="draft_awaiting_clinical_review",
+    ),
+    RequiredQuestion(
+        opcs_code="R17",
+        domain="vte_prophylaxis",
+        question_text="Are you taking the anticoagulant injections each day, and how is the injection site?",
+        required=True,
+        day_ranges=[(1, 3), (4, 7), (8, 14)],
+        nice_basis="NG89 §1.3",
+        validation_status="draft_awaiting_clinical_review",
+    ),
+    RequiredQuestion(
+        opcs_code="R17",
+        domain="urinary_function",
+        question_text="Are you passing urine normally — any pain, difficulty, or change in amount?",
+        required=True,
+        day_ranges=[(1, 3)],
+        nice_basis="NG192 §1.5.9",
+        validation_status="draft_awaiting_clinical_review",
+    ),
+    # ──────────── Day 4-7 ────────────
+    RequiredQuestion(
+        opcs_code="R17",
+        domain="infant_feeding",
+        question_text="How is feeding going — breast, bottle, or both, and is the baby settling?",
+        required=True,
+        day_ranges=[(4, 7), (8, 14)],
+        nice_basis="NG194 §1.4",
+        validation_status="draft_awaiting_clinical_review",
+    ),
+    RequiredQuestion(
+        opcs_code="R17",
+        domain="mood_and_emotional_wellbeing",
+        question_text="How are you feeling in yourself — beyond the tiredness, any low mood or worry that's been hard to shake?",
+        required=True,
+        day_ranges=[(4, 7), (8, 14), (15, 30), (31, 42)],
+        nice_basis="NG192 §1.6 / NG194 §1.7",
+        validation_status="draft_awaiting_clinical_review",
+    ),
+    # ──────────── Day 15-30 ────────────
+    RequiredQuestion(
+        opcs_code="R17",
+        domain="contraception_and_sexual_health",
+        question_text="Has anyone talked with you about contraception since discharge?",
+        required=True,
+        day_ranges=[(15, 30), (31, 42)],
+        nice_basis="NG194 §1.8",
+        validation_status="draft_awaiting_clinical_review",
+    ),
+    # CLINICAL_REVIEW_NEEDED: postnatal depression screen timing —
+    # some NICE/RCOG sources favour day 10-14 Edinburgh scale, others
+    # defer to 6-week GP check. This draft places mood screen at every
+    # band from day 4 onwards; reviewer should decide which call formally
+    # administers the EPDS.
+]
+```
+
+Notes for the reviewer:
+- Every entry has `validation_status="draft_awaiting_clinical_review"` per brief non-negotiable.
+- Every entry cites a NICE section so the reviewer can validate the source.
+- `day_ranges` is a list of `(start, end)` tuples — a question can be required on multiple bands (e.g. mood runs across all bands from day 4).
+- One `CLINICAL_REVIEW_NEEDED` comment per genuine uncertainty, with the specific question posed to the reviewer.
+
+**Estimated manifest sizes** (per pathway, rough count of required-question rows):
+- Obstetric (R17, R18): 15-20 each
+- Orthopaedic (W37, W38, W40, W43): 12-15 each
+- Cardiac (K40, K40_CABG, K57, K60): 15-20 each
+- Surgical (H01, H04): 10-12 each
+- Respiratory (J44): 15-18
+- Neurological (S01): 20-25 (complex)
+- Mental health (Z03_MH): 0 (scaffold only)
+
+### 4. Red flag probe plan
+
+**Template principle (approved by reviewer, applies across all 15 pathways):**
+
+> **Red Flag Probes are strictly one observation per probe.** One probe asks exactly one clinical question — no compound "or" phrasing that bundles multiple independent observations. A compound question forces the patient to parse intent and often yields a single ambiguous yes/no covering distinct clinical events.
+>
+> **Required Questions can be multi-part but each part must be independently scoreable.** A Required Question that says "How is your wound — any redness, swelling, or discharge?" is acceptable because the transcript will capture each finding separately and the clinician reads the full answer. Red Flag Probes are the trigger for escalation and must have a clean 1:1 mapping to a specific clinical event.
+>
+> When a single upstream machine-readable `flag_code` (e.g. `postpartum_haemorrhage`) covers multiple distinct observations, split it into multiple probes with suffixes (`_volume`, `_clots`, `_haemodynamic`), carrying the upstream code in `parent_flag_code` so escalation logic and dashboards can aggregate back to the clinical entity.
+>
+> Both tone and this principle must hold across all 15 pathways.
+
+**Structure — one `RedFlagProbe` per single-observation clinical question.** Each probe contains:
+- `flag_code` — the specific probe identifier, usually a suffix variant of the upstream clinical-entity code.
+- `parent_flag_code` — the upstream machine-readable `red_flags` list entry from the monolith PLAYBOOK (or `None` if 1:1 with a flag_code).
+- `category` — maps to `RedFlagCategory` enum from Phase 2 models.
+- `nice_basis` — citation for the clinical trigger.
+- `patient_facing_question` — plain English the voice agent can read aloud. One observation.
+- `follow_up_escalation` — maps to `EscalationTier` enum (999 / same_day / urgent_gp / next_call / none).
+
+**Note on the Pydantic model:** Phase 3 adds `parent_flag_code: str | None = None` to `RedFlagProbe` in `clinical_intelligence/models.py` to support the upstream-code aggregation. This is a strictly additive change (nullable, defaults to `None` for 1:1 probes).
+
+**Worked example — R17:**
+
+R17 upstream red flag codes (from monolith PLAYBOOK): `wound_dehiscence`, `postpartum_haemorrhage`, `pe_symptoms`, `pre_eclampsia_signs`, `postnatal_depression_severe`, `infant_feeding_failure`. Each splits into 2–3 single-observation probes per the principle above. Total: ~14 probes.
+
+```python
+# app/clinical_intelligence/pathways/obstetric.py (partial — R17 Red Flag Probes)
+R17_RED_FLAG_PROBES = {
+    # ── postpartum_haemorrhage (3 probes, all 999) ──
+    "postpartum_haemorrhage_volume": RedFlagProbe(
+        flag_code="postpartum_haemorrhage_volume",
+        parent_flag_code="postpartum_haemorrhage",
+        category=RedFlagCategory.HAEMORRHAGE,
+        nice_basis="NG192 §1.5.8",
+        patient_facing_question=(
+            "Have you been soaking through a maternity pad in less than an hour?"
+        ),
+        follow_up_escalation=EscalationTier.EMERGENCY_999,
+        validation_status="draft_awaiting_clinical_review",
+    ),
+    "postpartum_haemorrhage_clots": RedFlagProbe(
+        flag_code="postpartum_haemorrhage_clots",
+        parent_flag_code="postpartum_haemorrhage",
+        category=RedFlagCategory.HAEMORRHAGE,
+        nice_basis="NG192 §1.5.8",
+        patient_facing_question=(
+            "Have you passed any clots that were bigger than a 50p coin?"
+        ),
+        follow_up_escalation=EscalationTier.EMERGENCY_999,
+        validation_status="draft_awaiting_clinical_review",
+    ),
+    "postpartum_haemorrhage_haemodynamic": RedFlagProbe(
+        flag_code="postpartum_haemorrhage_haemodynamic",
+        parent_flag_code="postpartum_haemorrhage",
+        category=RedFlagCategory.HAEMORRHAGE,
+        nice_basis="NG192 §1.5.8",
+        patient_facing_question=(
+            "Have you felt faint, dizzy, or lightheaded — especially when you stand up?"
+        ),
+        follow_up_escalation=EscalationTier.EMERGENCY_999,
+        validation_status="draft_awaiting_clinical_review",
+    ),
+
+    # ── postnatal_depression_severe (2 probes, differentiated escalation) ──
+    "postnatal_depression_passive_ideation": RedFlagProbe(
+        flag_code="postnatal_depression_passive_ideation",
+        parent_flag_code="postnatal_depression_severe",
+        category=RedFlagCategory.SUICIDAL_IDEATION,
+        nice_basis="NG192 §1.6 / CG192",
+        patient_facing_question=(
+            "Have you had any thoughts that you or your family would be better "
+            "off without you?"
+        ),
+        follow_up_escalation=EscalationTier.SAME_DAY,
+        validation_status="draft_awaiting_clinical_review",
+        # CLINICAL_REVIEW_NEEDED: reviewer to confirm SAME_DAY for passive
+        # ideation vs EMERGENCY_999. Current draft differentiates from active.
+    ),
+    "postnatal_depression_active_ideation": RedFlagProbe(
+        flag_code="postnatal_depression_active_ideation",
+        parent_flag_code="postnatal_depression_severe",
+        category=RedFlagCategory.SUICIDAL_IDEATION,
+        nice_basis="NG192 §1.6 / CG192",
+        patient_facing_question=(
+            "Have you had any thoughts about harming yourself, or about ending "
+            "your own life?"
+        ),
+        follow_up_escalation=EscalationTier.EMERGENCY_999,
+        validation_status="draft_awaiting_clinical_review",
+    ),
+
+    # ... (further 9 probes for wound_dehiscence, pe_symptoms,
+    # pre_eclampsia_signs, infant_feeding_failure — each split into
+    # single-observation probes per the principle. Full content in
+    # the actual obstetric.py file.)
+}
+```
+
+**Tone / wording principles (applied throughout):**
+- NHS-plain language, no clinical jargon (no "puerperal pyrexia", no "dyspnoea").
+- Specific physical-sign anchors the patient can evaluate ("maternity pad in less than an hour", "bigger than a 50p coin").
+- Invite disclosure without judgment, especially for mental-health probes.
+- **One observation per probe** — the template principle above is non-negotiable across all 15 pathways.
+
+**Scale across 15 pathways:** post-splitting, ~10-18 red flag probes per pathway (up from the pre-split ~4-8), ~150-200 total Red Flag Probe entries for Phase 3. The split increases volume but reduces ambiguity at trigger time.
+
+### 5. Output file structure
+
+```
+app/clinical_intelligence/pathways/
+  __init__.py               # registry — aggregates PATHWAYS, TRAJECTORIES,
+                            #   REQUIRED_QUESTIONS, RED_FLAG_PROBES across
+                            #   all cluster files; provides lookup helpers.
+  _probes.py                # (existing from Phase 2) — generic SOCRATES probes.
+  obstetric.py              # R17, R18 — ported first, template for the rest.
+  orthopaedic.py            # W37, W38, W40, W43
+  cardiac.py                # K40, K40_CABG, K57, K60
+  surgical.py               # H01, H04
+  respiratory.py            # J44
+  neurological.py           # S01
+  mental_health.py          # Z03_MH (scaffold only, §2)
+```
+
+**Per-cluster file module layout (exemplar):**
+
+```python
+"""Obstetric pathways — R17 (elective C-section), R18 (emergency C-section).
+
+Ported from:
+  - app/clinical_intelligence/benchmarks.py (DOMAIN_TRAJECTORIES)
+  - healthcare-voice-agent/agent/clinical_intelligence.py (PLAYBOOKS)
+with draft_awaiting_clinical_review flags and CLINICAL_REVIEW_NEEDED
+annotations on uncertain entries.
+
+NEW in this module:
+  - Required Questions manifests (Phase 3 net content).
+  - Patient-facing red flag probes (Phase 3 net content).
+"""
+from ..models import (
+    DomainTrajectoryEntry, PathwayPlaybook, RedFlagCategory,
+    RedFlagProbe, RequiredQuestion, EscalationTier,
+)
+
+# ── Playbook metadata ─────────────────────────────────────────────────
+R17_PLAYBOOK = PathwayPlaybook(...)
+R18_PLAYBOOK = PathwayPlaybook(...)
+
+# ── Trajectories (ported from benchmarks.py, re-shaped into Pydantic) ─
+R17_TRAJECTORIES: list[DomainTrajectoryEntry] = [...]
+R18_TRAJECTORIES: list[DomainTrajectoryEntry] = [...]
+
+# ── Required Questions (new content — Phase 3) ────────────────────────
+R17_REQUIRED_QUESTIONS: list[RequiredQuestion] = [...]
+R18_REQUIRED_QUESTIONS: list[RequiredQuestion] = [...]
+
+# ── Red Flag Probes (new content — Phase 3) ───────────────────────────
+R17_RED_FLAG_PROBES: dict[str, RedFlagProbe] = {...}
+R18_RED_FLAG_PROBES: dict[str, RedFlagProbe] = {...}
+
+# ── Module-level registries (consumed by pathways/__init__.py) ────────
+PATHWAYS = {"R17": R17_PLAYBOOK, "R18": R18_PLAYBOOK}
+TRAJECTORIES = {"R17": R17_TRAJECTORIES, "R18": R18_TRAJECTORIES}
+REQUIRED_QUESTIONS = {"R17": R17_REQUIRED_QUESTIONS, "R18": R18_REQUIRED_QUESTIONS}
+RED_FLAG_PROBES = {"R17": R17_RED_FLAG_PROBES, "R18": R18_RED_FLAG_PROBES}
+```
+
+**`__init__.py` aggregates:**
+
+```python
+from . import cardiac, mental_health, neurological, obstetric
+from . import orthopaedic, respiratory, surgical
+
+PATHWAYS, TRAJECTORIES, REQUIRED_QUESTIONS, RED_FLAG_PROBES = {}, {}, {}, {}
+for mod in (obstetric, orthopaedic, cardiac, surgical,
+            respiratory, neurological, mental_health):
+    PATHWAYS.update(mod.PATHWAYS)
+    TRAJECTORIES.update(mod.TRAJECTORIES)
+    REQUIRED_QUESTIONS.update(mod.REQUIRED_QUESTIONS)
+    RED_FLAG_PROBES.update(mod.RED_FLAG_PROBES)
+```
+
+### 6. Clinician review `.md` export format
+
+Generated programmatically from each per-cluster module via a new script: `backend/scripts/export_pathway_review.py <opcs_code>`. Output lands in `backend/docs/clinical_review/<opcs_code>.md` (new path, gitignored initially, regenerated on demand).
+
+**Partial example output — `R17.md`:**
+
+```markdown
+# R17 — Elective Caesarean Section — Clinical Review Draft
+
+| Field | Value |
+|---|---|
+| **Status** | draft_awaiting_clinical_review |
+| **Primary reviewer** | Obstetrician and/or community midwifery lead |
+| **NICE sources** | NG192 (postnatal care), QS32, NG194 (maternity services), NG89 (VTE) |
+| **Monitoring window** | 42 days |
+| **Call days** | 1, 3, 5, 7, 10, 14, 21, 28 |
+| **Domains** | wound_healing, pain_management, lochia_monitoring, vte_prophylaxis, infection_signs, infant_feeding, mood_and_emotional_wellbeing, urinary_function |
+
+## Domain trajectories
+
+### wound_healing — NG192 §1.5.3
+
+| Day | Expected | Upper bound | Expected state |
+|---:|---:|---:|---|
+| 1  | 2 | 3 | Wound intact, bruising expected |
+| 3  | 2 | 3 | Healing — clips/sutures in place |
+| 5  | 1 | 2 | Healing well |
+| 7  | 1 | 2 | Healing well |
+| 14 | 0 | 1 | Clips out, closed |
+| 28 | 0 | 1 | Scar forming |
+| 42 | 0 | 0 | Healed |
+
+### lochia_monitoring — NG192 §1.5.8
+(similar table)
+
+(... other domains ...)
+
+## Required Questions Manifest
+
+### Day 1-3
+| Domain | Question | NICE |
+|---|---|---|
+| wound_healing | How is the wound site looking — any redness, swelling, or discharge? | NG192 §1.5.3 |
+| lochia_monitoring | How is your bleeding — how much are you losing, what colour, any clots? | NG192 §1.5.8 |
+| pain_management | How are you managing pain — are the painkillers helping enough to move around and care for the baby? | NG192 §1.6 |
+| vte_prophylaxis | Are you taking the anticoagulant injections each day, and how is the injection site? | NG89 §1.3 |
+| urinary_function | Are you passing urine normally — any pain, difficulty, or change in amount? | NG192 §1.5.9 |
+
+### Day 4-7
+(similar table)
+
+## Red Flag Probes
+
+### postpartum_haemorrhage (HAEMORRHAGE → 999)
+> Have you had any heavy bleeding — like soaking through a pad in less than an hour, passing clots bigger than a 50p coin, or suddenly feeling faint, dizzy, or lightheaded when you stand up?
+
+**NICE basis:** NG192 §1.5.8
+
+(...)
+
+## Reviewer checklist
+
+### Trajectory values
+- [ ] Expected/upper-bound values clinically reasonable for each day+domain?
+- [ ] Day-range gaps filled? (e.g. if call_days says day 10 but trajectory stops at day 7.)
+- [ ] Any values that feel too conservative or too permissive?
+
+### Required questions
+- [ ] Every question covered is clinically necessary (no fluff)?
+- [ ] Any missing questions the reviewer would consider essential?
+- [ ] Day-band placement appropriate?
+- [ ] Wording acceptable for a voice agent to read aloud?
+
+### Red flag probes
+- [ ] Patient-facing wording free of clinical jargon?
+- [ ] Escalation tier (999 / same_day / urgent_gp / next_call) appropriate?
+- [ ] No compound questions (one probe = one clinical question)?
+- [ ] Non-judgmental framing for mental-health items?
+
+### CLINICAL_REVIEW_NEEDED flags
+(Auto-listed from the source file. Reviewer addresses each before sign-off.)
+- [ ] Postnatal depression screen timing — reviewer to confirm whether EPDS is administered at day 10-14 or deferred to 6-week GP check.
+- [ ] postnatal_depression_severe escalation tier — should active ideation with intent split into a separate probe with EMERGENCY_999?
+
+## Sign-off
+- Reviewer name:
+- Review date:
+- Revised validation_status (circle one): clinician_reviewed / production_signed_off / remains_draft_with_notes
+- Comments:
+```
+
+### 7. Order of execution within Phase 3
+
+**R17 first** — confirming your recommendation. Rationale:
+
+- R17 is the most clinically mature in the codebase (well-developed domain list, trajectory data already scrutinised in the existing benchmarks.py entries).
+- R17 exercises every piece of Phase 3 work in one pathway: trajectories to port, Required Questions to draft, red flag probes to write, CLINICAL_REVIEW_NEEDED flags to place, and `.md` export to generate.
+- Once R17 is approved, R18 is a close follow — obstetric cluster is complete.
+- The other clusters then follow roughly in order of clinical data maturity: respiratory (J44, single pathway, mostly ported), orthopaedic (4 pathways, existing data solid), cardiac (4, more nuance), surgical (2, straightforward), neurological (1, most complex), mental_health (scaffold only).
+
+**Proposed commit sequence:**
+
+1. **obstetric.py** (R17 + R18) + R17 `.md` export — gate for your review of the shape.
+2. **respiratory.py** (J44) — small, fast port after R17 validation.
+3. **orthopaedic.py** (W37, W38, W40, W43).
+4. **surgical.py** (H01, H04).
+5. **cardiac.py** (K40, K40_CABG, K57, K60).
+6. **neurological.py** (S01).
+7. **mental_health.py** (Z03_MH scaffold).
+8. **pathways/__init__.py** aggregator + `scripts/export_pathway_review.py` exporter.
+
+One commit per cluster. Tests green at each commit boundary. `.md` exports regenerated for every commit so reviewers see current state.
+
+### Pre-work questions (answered)
+
+**Q1 — Overlapping domains (wound_healing across clusters).**
+
+**Cluster-specific.** Wound_healing in orthopaedic (hip replacement incision) has a materially different trajectory from obstetric (Pfannenstiel c-section scar) or surgical (colectomy laparotomy or laparoscopic ports). Same-name, different-clinical-reality domains:
+- Different expected healing timelines (days vs weeks).
+- Different red flag thresholds (wound_dehiscence on a c-section is a different presentation to hip-replacement dehiscence).
+- Different NICE sources.
+
+A "shared base" would force averaging across unlike wounds and lose clinically meaningful specificity. Cluster-specific costs more data duplication (same domain name, different entries) but is clinically correct.
+
+**Q2 — NICE precedence rule.**
+
+Documented as a comment at the top of each per-cluster file:
+
+1. **NG (NICE Guideline)** is the primary source. Use the most recent NG that covers the topic.
+2. **CG (Clinical Guideline)** — the legacy name for NGs; precedence follows date. If an NG has explicitly replaced a CG, the NG wins. If the NG references or defers to an older CG, cite both.
+3. **QS (Quality Standard)** — evidence-ranked summary; cite alongside the primary NG but never as the sole source.
+4. **TA (Technology Appraisal)** — specific to drug/device approvals; cite when the pathway explicitly hinges on an appraised technology (e.g. TA249 for AF rivaroxaban).
+5. When two NGs cover overlapping territory (e.g. NG192 postnatal + NG194 maternity services), cite both in `nice_basis` with section numbers — the reviewer confirms which governs the specific question.
+6. Date precedence: newer wins unless older is explicitly referenced by the newer.
+
+**Q3 — `.md` export: one file per pathway or per cluster?**
+
+**One file per pathway** — 14 files for the real pathways + 1 for the Z03_MH scaffold notice (confirms the reviewer doesn't need to send Mental Health content to a psychiatrist because there isn't any).
+
+Rationale:
+- A cardiologist reviewing K40 should not have to wade through K40_CABG, K57, K60 content — their review attention is a finite resource.
+- File-per-pathway makes the reviewer sign-off traceable: one file, one reviewer, one timestamp, one status change.
+- Generating 15 files from the same Python data structure is trivial — same script, different OPCS code argument.
+- Per cluster would be cheaper to manage (7 files instead of 15), but review experience is the bottleneck, not file count.
+
+### Estimated diff
+
+- Per-cluster Python files: ~300-500 lines each × 7 clusters = ~2500-3500 lines.
+- Pathway `__init__.py` aggregator: ~40 lines.
+- `scripts/export_pathway_review.py` exporter: ~200 lines.
+- 15 generated `.md` files (in `backend/docs/clinical_review/`, gitignored initially): 15 × ~150 lines = ~2250 lines generated, not reviewed as code.
+- Tests (schema validation, manifest completeness, probe coverage): ~400 lines.
+- **Total: ~3500-4300 lines of Python (code + data)**, plus generated `.md` exports.
+
+Review surface is heavy on data review, not code review — this is by design. Clinical content is what's being Phase-3'd; the Python scaffolding is Phase 2 and stable.
 
 ---
 

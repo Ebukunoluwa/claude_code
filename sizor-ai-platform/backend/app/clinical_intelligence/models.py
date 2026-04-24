@@ -157,9 +157,24 @@ class RequiredQuestion(BaseModel):
 
 
 class RedFlagProbe(BaseModel):
-    """Patient-facing probe for one red flag. Phase 4 populates the
-    patient-facing question wordings; Phase 2 defines the shape only."""
+    """Patient-facing probe for one red flag observation.
+
+    Phase 3 rule: one probe = one clinical observation. When a single
+    upstream machine-readable flag_code (e.g. `postpartum_haemorrhage`)
+    covers multiple distinct observations (volume, clots, haemodynamic
+    symptoms), it splits into multiple probes with suffixed flag_codes
+    that share a common `parent_flag_code`. The parent code is the
+    upstream entry from the monolith PLAYBOOK's `red_flags` list and
+    lets escalation logic / dashboards aggregate back to the clinical
+    entity.
+
+    flag_code       — unique per probe (may be a suffix variant of the
+                      parent, e.g. 'postpartum_haemorrhage_volume').
+    parent_flag_code — upstream clinical-entity code, or None when the
+                      probe is 1:1 with its flag_code (no split).
+    """
     flag_code: str
+    parent_flag_code: str | None = None
     category: RedFlagCategory
     nice_basis: str
     patient_facing_question: str
