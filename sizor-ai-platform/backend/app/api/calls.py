@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from ..database import get_db
-from ..models import CallRecord, SOAPNote, ClinicalExtraction, UrgencyFlag, ClinicianAction, Patient, CallSchedule
+from ..models import CallRecord, SOAPNote, ClinicalExtraction, UrgencyFlag, ClinicianAction, Patient, CallSchedule, ProbeCall, ProbeAnswer
 from .auth import get_current_clinician
 from ..tasks.celery_app import celery_app
 from ..config import settings
@@ -143,6 +143,32 @@ async def ingest_call_from_voice_agent(
     # If this is a probe call, update its status and link SOAP note after pipeline
     if probe_call_id:
         celery_app.send_task("link_probe_call", args=[probe_call_id, call_id], countdown=30)
+
+        # Phase 2.5 Fix 1: scaffold probe_answers rows, one per clinician-
+        # requested question stored on ProbeCall.questions_list. Each row
+        # starts as extraction_status='pending' awaiting Phase 4's
+        # transcript-to-answer extraction.
+        try:
+            pc = (await db.execute(
+                select(ProbeCall).where(ProbeCall.probe_call_id == uuid.UUID(probe_call_id))
+            )).scalar_one_or_none()
+            if pc and pc.questions_list:
+                for q in pc.questions_list:
+                    question_text = q if isinstance(q, str) else str(q)
+                    if not question_text.strip():
+                        continue
+                    db.add(ProbeAnswer(
+                        probe_call_id=pc.probe_call_id,
+                        prompt_question=question_text,
+                        extraction_status="pending",
+                    ))
+                await db.commit()
+        except Exception:
+            # Non-blocking: a probe ingest that fails to scaffold rows
+            # must not block the call record itself. The link_probe_call
+            # task still runs; Phase 4 extraction will fail gracefully
+            # on a missing row.
+            pass
 
     # For cut-off calls: schedule a continuation call 5 minutes later
     if final_status == "cut_off":

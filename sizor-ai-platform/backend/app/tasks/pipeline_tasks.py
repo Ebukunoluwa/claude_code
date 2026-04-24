@@ -115,11 +115,16 @@ def process_call(call_id: str):
             # domains that weren't touched in this session.
             _prior_domain_scores: dict = {}
             try:
+                # Phase 2.5 Fix 1: exclude probe calls from the longitudinal
+                # domain-score carry-forward. Probes read the chain but don't
+                # update it — see PLAN.md Sec Phase 2.5 Q1.
                 _prior_ext_for_domains = await db.execute(
                     select(ClinicalExtraction)
+                    .join(CallRecord, CallRecord.call_id == ClinicalExtraction.call_id)
                     .where(
                         ClinicalExtraction.patient_id == call.patient_id,
                         ClinicalExtraction.call_id != call.call_id,
+                        CallRecord.trigger_type != "probe",
                     )
                     .order_by(ClinicalExtraction.extracted_at.desc())
                     .limit(1)
@@ -302,11 +307,15 @@ def process_call(call_id: str):
             # to drive EWMA smoothing across calls.
             prior_smoothed: dict | None = None
             try:
+                # Phase 2.5 Fix 1: exclude probe calls from the EWMA chain.
+                # Probes read the chain but don't update it.
                 prior_ext_result = await db.execute(
                     select(ClinicalExtraction)
+                    .join(CallRecord, CallRecord.call_id == ClinicalExtraction.call_id)
                     .where(
                         ClinicalExtraction.patient_id == call.patient_id,
                         ClinicalExtraction.call_id != call.call_id,
+                        CallRecord.trigger_type != "probe",
                     )
                     .order_by(ClinicalExtraction.extracted_at.desc())
                     .limit(1)
@@ -367,6 +376,10 @@ def process_call(call_id: str):
                     modifier_detail=smoothed_state.get("modifier_detail", {}),
                     lam=smoothed_state.get("lam", 0.3),
                 )
+                # Phase 2.5 Fix 1: probe calls get focused scoring (only
+                # domains the probe asked about participate). Non-probe
+                # calls keep full-domain scoring.
+                is_probe = call.trigger_type == "probe"
                 breakdown = compute_risk_score(
                     smoothed_obj,
                     ftp_status=ftp_status,
@@ -374,9 +387,11 @@ def process_call(call_id: str):
                     has_active_red_flag=has_red_flag,
                     raw_pain=scores_raw.get("pain_score"),
                     raw_breathlessness=scores_raw.get("breathlessness_score"),
+                    scoring_scope="probe_focused" if is_probe else "full",
                 )
                 extraction.smoothed_scores = smoothed_state
                 extraction.risk_score = breakdown.final_score
+                extraction.scoring_scope = "probe_focused" if is_probe else "full"
                 bd_dict = breakdown_to_dict(breakdown)
                 # Embed domain scores so the frontend WHY panel can display them
                 # even when generic weighted contributions are also present.

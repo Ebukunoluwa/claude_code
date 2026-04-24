@@ -42,6 +42,9 @@ from typing import Literal
 from app.clinical_intelligence.smoothing import SmoothedScores
 
 
+ScoringScope = Literal["full", "probe_focused"]
+
+
 # --- Weights (must sum to 1.0) ---
 W_WORST_SYMPTOM = 0.55
 W_MOOD = 0.15
@@ -163,6 +166,7 @@ def compute_risk_score(
     has_active_red_flag: bool = False,
     raw_pain: float | None = None,
     raw_breathlessness: float | None = None,
+    scoring_scope: ScoringScope = "full",
 ) -> RiskScoreBreakdown:
     """
     Compute a 0–100 risk score from clinical state.
@@ -173,17 +177,27 @@ def compute_risk_score(
         Output of smoothing.smooth_extraction() for this call.
     ftp_status : str
         One of: on_track, behind, significantly_behind, insufficient_data, unknown.
-        Drives the FTP component of the score.
+        Drives the FTP component of the score. Ignored when scoring_scope is
+        'probe_focused'.
     day_in_recovery : int | None
-        Days since discharge. Day 0–3 gets a small additional uplift.
+        Days since discharge. Day 0–3 gets a small additional uplift. Ignored
+        when scoring_scope is 'probe_focused'.
     has_active_red_flag : bool
         Whether this call produced any RED flag in evaluate_flags. If True, the
         final score is floored at RED_FLAG_FLOOR regardless of other components.
+        Applies in both scoring scopes — safety floors are non-negotiable.
     raw_pain, raw_breathlessness : float | None
         RAW (unsmoothed) scores. If either is ≥ 8, score is floored at
-        ACUTE_SYMPTOM_FLOOR even if the smoothed value is lower. Prevents
-        the score from masking a single acute reading — mirrors the safety
-        logic in evaluate_flags.
+        ACUTE_SYMPTOM_FLOOR even if the smoothed value is lower. Applies in
+        both scoring scopes.
+    scoring_scope : 'full' | 'probe_focused'
+        'full' — all five components weighted at fixed weights. Normal calls.
+        'probe_focused' — only worst_symptom + mood participate; weights
+        renormalised over components with a non-None value. ftp / modifier /
+        day_factor are skipped (they're longitudinal context the probe did
+        not ask about). Missing domains are excluded from the calculation,
+        not treated as zero — a probe asking only about pain must not be
+        pulled down by a zeroed mood component.
 
     Returns
     -------
@@ -192,16 +206,54 @@ def compute_risk_score(
     # 1. Compute each component (0-100 pre-weighting)
     worst_symptom = _worst_symptom_component(smoothed)
     mood = _mood_component(smoothed)
-    ftp = _ftp_component(ftp_status)
-    modifier = _modifier_component(smoothed)
-    day_factor = _day_factor_component(day_in_recovery)
 
-    # 2. Weight and sum
-    w_worst = W_WORST_SYMPTOM * worst_symptom
-    w_mood = W_MOOD * mood
-    w_ftp = W_FTP * ftp
-    w_mod = W_MODIFIERS * modifier
-    w_day = W_DAY_FACTOR * day_factor
+    # Phase 2.5 Fix 1: focused scoring renormalises over present components.
+    # We also need to know whether each component was PRESENT (had data) vs.
+    # merely zero-valued — _worst_symptom_component returns 0.0 when all
+    # smoothed symptom values are None, which must not count as a signal in
+    # focused mode.
+    _has_symptom_signal = any(
+        v is not None for v in (
+            smoothed.pain, smoothed.breathlessness,
+            smoothed.mobility, smoothed.appetite,
+        )
+    )
+    _has_mood_signal = smoothed.mood is not None
+
+    if scoring_scope == "probe_focused":
+        ftp = 0.0
+        modifier = 0.0
+        day_factor = 0.0
+
+        # Renormalise weights over the components that actually have data.
+        present = []
+        if _has_symptom_signal:
+            present.append(("worst_symptom", W_WORST_SYMPTOM, worst_symptom))
+        if _has_mood_signal:
+            present.append(("mood", W_MOOD, mood))
+
+        if present:
+            total_w = sum(w for _, w, _ in present)
+            weighted = {name: (w / total_w) * v for name, w, v in present}
+            w_worst = weighted.get("worst_symptom", 0.0)
+            w_mood = weighted.get("mood", 0.0)
+        else:
+            # Probe collected nothing — score stays at 0 pre-floor.
+            w_worst = 0.0
+            w_mood = 0.0
+        w_ftp = 0.0
+        w_mod = 0.0
+        w_day = 0.0
+    else:
+        ftp = _ftp_component(ftp_status)
+        modifier = _modifier_component(smoothed)
+        day_factor = _day_factor_component(day_in_recovery)
+
+        w_worst = W_WORST_SYMPTOM * worst_symptom
+        w_mood = W_MOOD * mood
+        w_ftp = W_FTP * ftp
+        w_mod = W_MODIFIERS * modifier
+        w_day = W_DAY_FACTOR * day_factor
 
     raw_score = w_worst + w_mood + w_ftp + w_mod + w_day
 

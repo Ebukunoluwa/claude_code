@@ -61,6 +61,12 @@ class ClinicalExtraction(Base):
         String(30), nullable=False, server_default="extracted"
     )
     extraction_status_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Phase 2.5 Fix 1 (migration d3e5f7a9b2c4): 'full' for normal calls,
+    # 'probe_focused' for probe calls. Dashboard metadata so probe risk_score
+    # renders distinctly from longitudinal risk.
+    scoring_scope: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="full"
+    )
 
     call = relationship("CallRecord", back_populates="extraction")
 
