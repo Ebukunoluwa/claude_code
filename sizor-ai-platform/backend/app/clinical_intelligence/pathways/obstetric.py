@@ -675,13 +675,13 @@ R18_REQUIRED_QUESTIONS: list[RequiredQuestion] = [
     # the full monitoring window.
     _rq18(
         "wound_healing_pfannenstiel",
-        "How is the wound site looking — any redness, swelling, or fluid coming from it?",
+        "How is the wound looking — any redness, swelling, or fluid coming from it?",
         [(1, 3), (4, 7), (8, 14), (15, 28)],
         "NG192 §1.5.3",
     ),
     _rq18(
         "lochia_pattern",
-        "How is your bleeding — how much are you losing, what colour, and are there any clots?",
+        "How is your bleeding — how much blood are you losing, what colour, and are there any clots?",
         [(1, 3), (4, 7), (8, 14), (15, 28)],
         "NG192 §1.5.8",
     ),
