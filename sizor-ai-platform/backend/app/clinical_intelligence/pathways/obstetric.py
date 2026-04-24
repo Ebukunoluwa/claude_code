@@ -495,22 +495,22 @@ R17_RED_FLAG_PROBES: dict[str, RedFlagProbe] = {
 #
 # Differs from R17 in: traumatic birth context, emotional processing +
 # PTSD screening as explicit domains, longer LMWH course (28-day high-
-# risk is the norm, not exception). Shares most R17 structure.
+# risk is the norm, not exception), slower mobility recovery. Shares
+# most R17 structure.
 #
-# Domain set from benchmarks.py (8 domains) — note that monolith PLAYBOOK
-# lists 'mobility' as a domain but benchmarks has no R18 mobility_progress
-# trajectory. CLINICAL_REVIEW_NEEDED below about whether to port R17's
-# mobility_progress values or omit.
-#
-# Red flag set from monolith PLAYBOOK — adds ptsd_symptoms (vs R17), and
-# drops infant_feeding_failure (which applies clinically to R18 too).
-# CLINICAL_REVIEW_NEEDED below.
+# Decisions during port (not open flags):
+#   mobility_progress included with upper_bound raised +1 on days 1, 3,
+#     5, 7 vs R17 (slower emergency-surgery mobilisation). Days 10+
+#     unchanged. Added to domain list; trajectory + required question
+#     included below.
+#   NG89 added to nice_ids vs monolith — extended LMWH is the primary
+#     R18 scenario, not an edge case.
 
 R18_PLAYBOOK = PathwayPlaybook(
     opcs_code="R18",
     label="Emergency Caesarean Section",
     category="obstetric",
-    nice_ids=["NG192", "NG194", "QS32", "NG89"],  # NG89 added vs monolith — extended LMWH is the primary R18 scenario
+    nice_ids=["NG192", "NG194", "QS32", "NG89"],
     monitoring_window_days=42,
     call_days=[1, 3, 5, 7, 10, 14, 21, 28],
     domains=[
@@ -518,6 +518,7 @@ R18_PLAYBOOK = PathwayPlaybook(
         "lochia_pattern",
         "pain_management",
         "lmwh_adherence",
+        "mobility_progress",
         "emotional_processing_of_birth",
         "ptsd_screening",
         "postnatal_depression_screen",
@@ -576,7 +577,7 @@ R18_TRAJECTORIES: list[DomainTrajectoryEntry] = [
     _traj18("pain_management",  1, 2, 3, "Moderate-severe pain expected post-emergency surgery", "NG192"),
     _traj18("pain_management",  3, 2, 3, "Pain reducing with analgesia", "NG192"),
     _traj18("pain_management",  5, 2, 2, "Mild-moderate pain", "NG192"),
-    _traj18("pain_management",  7, 2, 2, "Mild pain, reducing analgesic need", "NG192"),
+    _traj18("pain_management",  7, 2, 3, "Mild pain, reducing analgesic need", "NG192"),
     _traj18("pain_management", 10, 1, 2, "Mild pain at activity", "NG192"),
     _traj18("pain_management", 14, 1, 1, "Minimal pain", "NG192"),
     _traj18("pain_management", 21, 0, 1, "Pain resolving", "NG192"),
@@ -631,13 +632,23 @@ R18_TRAJECTORIES: list[DomainTrajectoryEntry] = [
     _traj18("breastfeeding_support", 14, 0, 1, "Feeding well established", "NG192"),
     _traj18("breastfeeding_support", 21, 0, 1, "Ongoing support available", "NG192"),
     _traj18("breastfeeding_support", 28, 0, 1, "Feeding established", "NG192"),
-]
 
-# CLINICAL_REVIEW_NEEDED: R18 benchmarks has no mobility_progress
-# trajectory (R17 does). Monolith PLAYBOOK lists 'mobility' for R18.
-# Reviewer to decide: port R17's mobility_progress values (likely
-# slightly slower recovery for emergency), use R17's values as-is,
-# or omit the domain from R18 entirely.
+    # mobility_progress — NG192 §1.7 (ported from R17 with upper_bound +1
+    # on days 1, 3, 5, 7 for slower emergency-surgery mobilisation;
+    # days 10+ unchanged).
+    # CLINICAL_REVIEW_NEEDED: the +1 upper_bound shift is a calibration
+    # choice during port — the clinical direction (slower mobility
+    # recovery for emergency C-section) is defensible; the specific
+    # magnitude (+1 on specific days) needs reviewer confirmation.
+    _traj18("mobility_progress",  1, 2, 4, "Short walks with support encouraged", "NG192"),
+    _traj18("mobility_progress",  3, 2, 4, "Increasing movement, avoid heavy lifting", "NG192"),
+    _traj18("mobility_progress",  5, 2, 3, "Short walks indoors, stair caution", "NG192"),
+    _traj18("mobility_progress",  7, 1, 3, "Gentle mobilising at home", "NG192"),
+    _traj18("mobility_progress", 10, 1, 2, "Increasing activity", "NG192"),
+    _traj18("mobility_progress", 14, 1, 1, "Near-normal light activity", "NG192"),
+    _traj18("mobility_progress", 21, 1, 1, "Driving possible from 5-6 weeks if comfortable", "NG192"),
+    _traj18("mobility_progress", 28, 0, 1, "Gradual return to activity", "NG192"),
+]
 
 
 def _rq18(
@@ -654,17 +665,20 @@ def _rq18(
 
 
 R18_REQUIRED_QUESTIONS: list[RequiredQuestion] = [
-    # Core shared with R17 (wound, lochia, pain, LMWH, feeding)
+    # Core shared with R17 (wound, lochia, pain, LMWH, feeding).
+    # Extended to day 15-28 for wound + lochia since benchmarks has
+    # day 21/28 trajectory data for both domains — Sarah probes for
+    # the full monitoring window.
     _rq18(
         "wound_healing_pfannenstiel",
         "How is the wound site looking — any redness, swelling, or fluid coming from it?",
-        [(1, 3), (4, 7), (8, 14)],
+        [(1, 3), (4, 7), (8, 14), (15, 28)],
         "NG192 §1.5.3",
     ),
     _rq18(
         "lochia_pattern",
         "How is your bleeding — how much are you losing, what colour, and are there any clots?",
-        [(1, 3), (4, 7), (8, 14)],
+        [(1, 3), (4, 7), (8, 14), (15, 28)],
         "NG192 §1.5.8",
     ),
     _rq18(
@@ -686,11 +700,28 @@ R18_REQUIRED_QUESTIONS: list[RequiredQuestion] = [
         "NG194 §1.4",
     ),
 
-    # Trauma-aware opener — specific to R18 emergency context
+    # Mobility (ported from R17 with R18-specific +1 upper on early days)
+    _rq18(
+        "mobility_progress",
+        "How much are you able to move around — walking indoors, using stairs, lifting the baby?",
+        [(4, 7), (8, 14), (15, 28)],
+        "NG192 §1.7",
+    ),
+
+    # Trauma-aware opener — gentler phrasing for day 1-3 emergency context.
+    # Split into two entries: early call reassures and invites sharing
+    # without prompting intrusion; later calls shift to more direct
+    # screening for intrusive re-experiencing.
+    _rq18(
+        "emotional_processing_of_birth",
+        "The birth was different from what you'd planned — how are you feeling about how things went?",
+        [(1, 3)],
+        "NG192 §1.6 / NG194 §1.7",
+    ),
     _rq18(
         "emotional_processing_of_birth",
         "The birth wasn't what you'd planned — how are you processing it? Anything that's been hard to talk about, or that keeps coming back?",
-        [(1, 3), (4, 7), (8, 14)],
+        [(4, 7), (8, 14)],
         "NG192 §1.6 / NG194 §1.7",
     ),
 
