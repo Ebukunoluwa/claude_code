@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import String, DateTime, ForeignKey, Text, Float, Boolean, Integer
+from sqlalchemy import String, DateTime, ForeignKey, Text, Float, Boolean, Integer, Index
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from ..database import Base
@@ -131,3 +131,37 @@ class ClinicianAction(Base):
     patient = relationship("Patient", back_populates="actions", foreign_keys=[patient_id])
     call = relationship("CallRecord", back_populates="actions", foreign_keys=[call_id])
     clinician = relationship("Clinician", back_populates="actions", foreign_keys=[clinician_id])
+
+
+# Phase 4 — coverage enforcement. One row per call (keyed by call_id).
+# Populated by pipeline_tasks Task 1b after clinical extraction runs.
+# Adding fields requires both the migration (alembic) AND this class —
+# ORM↔DB parity test guards against drift (see test_orm_db_schema_parity).
+class CallCoverageReport(Base):
+    __tablename__ = "call_coverage_reports"
+
+    coverage_report_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    call_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("call_records.call_id"), nullable=False)
+    patient_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("patients.patient_id"), nullable=False)
+    opcs_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    day_in_recovery: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # List columns: stored as JSONB arrays of strings. Kept as a list
+    # (not a set) so the persisted order matches what the classifier
+    # returned and downstream readers can reason about it deterministically.
+    required_questions_expected: Mapped[list] = mapped_column(JSONB, default=list)
+    required_questions_asked: Mapped[list] = mapped_column(JSONB, default=list)
+    required_questions_patient_declined: Mapped[list] = mapped_column(JSONB, default=list)
+    red_flag_probes_expected: Mapped[list] = mapped_column(JSONB, default=list)
+    red_flag_probes_asked: Mapped[list] = mapped_column(JSONB, default=list)
+    red_flag_probes_positive: Mapped[list] = mapped_column(JSONB, default=list)
+    socrates_probes_triggered: Mapped[list] = mapped_column(JSONB, default=list)
+    socrates_probes_completed: Mapped[list] = mapped_column(JSONB, default=list)
+    coverage_percentage: Mapped[float | None] = mapped_column(Float, nullable=True)
+    incomplete_items: Mapped[list] = mapped_column(JSONB, default=list)
+    # Full LLM classifier response — audit only, never consumed downstream.
+    raw_classifier_output: Mapped[dict] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        Index("ix_call_coverage_reports_patient_created", "patient_id", "created_at"),
+    )

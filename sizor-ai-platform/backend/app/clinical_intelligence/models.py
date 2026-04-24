@@ -17,6 +17,7 @@ See PLAN.md §2 and §6A for the full spec.
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Annotated, Literal, Self, Union
 
@@ -417,4 +418,51 @@ class PromptContext(BaseModel):
     active_red_flags: list[str] = Field(default_factory=list)
     medications: list[str] = Field(default_factory=list)
     restricted_mode: bool = False
+    model_config = ConfigDict(extra="forbid")
+
+
+# ======================================================================
+# Phase 4 — coverage enforcement
+# ======================================================================
+
+class CoverageReport(BaseModel):
+    """Per-call audit of which Required Questions and Red Flag Probes
+    the voice agent actually covered. Produced post-call by an LLM
+    classifier (see clinical_intelligence.coverage.validate_call_coverage).
+
+    Semantics:
+      - required_questions_expected / red_flag_probes_expected — what the
+        Phase 3 manifest says MUST be covered for this (opcs_code, day).
+      - *_asked — what the classifier determined the agent actually
+        raised during the call. Patient-declined items count as asked
+        (they appear in both *_asked and patient_declined).
+      - required_questions_patient_declined — subset of *_asked where
+        the patient explicitly refused to discuss the topic. Logged
+        separately for dashboard visibility.
+      - red_flag_probes_positive — subset of red_flag_probes_asked
+        where the patient reported the symptom.
+      - socrates_probes_triggered — domain names whose extracted score
+        was ≥2 (above-expected for most day-bands), signalling a
+        domain that warranted SOCRATES follow-up probing.
+      - socrates_probes_completed — subset of _triggered where the
+        agent actually ran SOCRATES probes on that domain.
+      - coverage_percentage — asked / expected × 100, computed in
+        Python (not inferred by the LLM).
+      - incomplete_items — union of missing RQ question_texts and
+        missing RFP flag_codes, surfaced to the clinician dashboard.
+    """
+    required_questions_expected: list[str] = Field(default_factory=list)
+    required_questions_asked: list[str] = Field(default_factory=list)
+    required_questions_patient_declined: list[str] = Field(default_factory=list)
+    red_flag_probes_expected: list[str] = Field(default_factory=list)
+    red_flag_probes_asked: list[str] = Field(default_factory=list)
+    red_flag_probes_positive: list[str] = Field(default_factory=list)
+    socrates_probes_triggered: list[str] = Field(default_factory=list)
+    socrates_probes_completed: list[str] = Field(default_factory=list)
+    coverage_percentage: float | None = Field(
+        default=None, ge=0.0, le=100.0,
+        description="asked / expected × 100. None when classifier failed.",
+    )
+    incomplete_items: list[str] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     model_config = ConfigDict(extra="forbid")
