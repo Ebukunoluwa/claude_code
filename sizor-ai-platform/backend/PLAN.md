@@ -224,82 +224,110 @@ Notes for the reviewer:
 
 ### 4. Red flag probe plan
 
-**Structure — one `RedFlagProbe` per machine-readable flag code per pathway.** Each probe contains:
-- `flag_code` — matches existing monolith `red_flags` list (e.g. `postpartum_haemorrhage`)
-- `category` — maps to `RedFlagCategory` enum from Phase 2 models
-- `nice_basis` — citation for the clinical trigger
-- `patient_facing_question` — plain English the voice agent can read aloud
-- `follow_up_escalation` — maps to `EscalationTier` enum (999 / same_day / urgent_gp / next_call / none)
+**Template principle (approved by reviewer, applies across all 15 pathways):**
+
+> **Red Flag Probes are strictly one observation per probe.** One probe asks exactly one clinical question — no compound "or" phrasing that bundles multiple independent observations. A compound question forces the patient to parse intent and often yields a single ambiguous yes/no covering distinct clinical events.
+>
+> **Required Questions can be multi-part but each part must be independently scoreable.** A Required Question that says "How is your wound — any redness, swelling, or discharge?" is acceptable because the transcript will capture each finding separately and the clinician reads the full answer. Red Flag Probes are the trigger for escalation and must have a clean 1:1 mapping to a specific clinical event.
+>
+> When a single upstream machine-readable `flag_code` (e.g. `postpartum_haemorrhage`) covers multiple distinct observations, split it into multiple probes with suffixes (`_volume`, `_clots`, `_haemodynamic`), carrying the upstream code in `parent_flag_code` so escalation logic and dashboards can aggregate back to the clinical entity.
+>
+> Both tone and this principle must hold across all 15 pathways.
+
+**Structure — one `RedFlagProbe` per single-observation clinical question.** Each probe contains:
+- `flag_code` — the specific probe identifier, usually a suffix variant of the upstream clinical-entity code.
+- `parent_flag_code` — the upstream machine-readable `red_flags` list entry from the monolith PLAYBOOK (or `None` if 1:1 with a flag_code).
+- `category` — maps to `RedFlagCategory` enum from Phase 2 models.
+- `nice_basis` — citation for the clinical trigger.
+- `patient_facing_question` — plain English the voice agent can read aloud. One observation.
+- `follow_up_escalation` — maps to `EscalationTier` enum (999 / same_day / urgent_gp / next_call / none).
+
+**Note on the Pydantic model:** Phase 3 adds `parent_flag_code: str | None = None` to `RedFlagProbe` in `clinical_intelligence/models.py` to support the upstream-code aggregation. This is a strictly additive change (nullable, defaults to `None` for 1:1 probes).
 
 **Worked example — R17:**
 
-R17 red flag codes (from monolith PLAYBOOK): `postpartum_haemorrhage`, `wound_dehiscence`, `infection_signs`, `puerperal_sepsis`, `venous_thromboembolism`, `postnatal_depression_severe`.
+R17 upstream red flag codes (from monolith PLAYBOOK): `wound_dehiscence`, `postpartum_haemorrhage`, `pe_symptoms`, `pre_eclampsia_signs`, `postnatal_depression_severe`, `infant_feeding_failure`. Each splits into 2–3 single-observation probes per the principle above. Total: ~14 probes.
 
 ```python
 # app/clinical_intelligence/pathways/obstetric.py (partial — R17 Red Flag Probes)
 R17_RED_FLAG_PROBES = {
-    "postpartum_haemorrhage": RedFlagProbe(
-        flag_code="postpartum_haemorrhage",
+    # ── postpartum_haemorrhage (3 probes, all 999) ──
+    "postpartum_haemorrhage_volume": RedFlagProbe(
+        flag_code="postpartum_haemorrhage_volume",
+        parent_flag_code="postpartum_haemorrhage",
         category=RedFlagCategory.HAEMORRHAGE,
         nice_basis="NG192 §1.5.8",
         patient_facing_question=(
-            "Have you had any heavy bleeding — like soaking through a pad in "
-            "less than an hour, passing clots bigger than a 50p coin, or "
-            "suddenly feeling faint, dizzy, or lightheaded when you stand up?"
+            "Have you been soaking through a maternity pad in less than an hour?"
         ),
         follow_up_escalation=EscalationTier.EMERGENCY_999,
         validation_status="draft_awaiting_clinical_review",
     ),
-    "puerperal_sepsis": RedFlagProbe(
-        flag_code="puerperal_sepsis",
-        category=RedFlagCategory.SEPSIS_SIGNS,
-        nice_basis="NG192 §1.5.10 / NG51",
+    "postpartum_haemorrhage_clots": RedFlagProbe(
+        flag_code="postpartum_haemorrhage_clots",
+        parent_flag_code="postpartum_haemorrhage",
+        category=RedFlagCategory.HAEMORRHAGE,
+        nice_basis="NG192 §1.5.8",
         patient_facing_question=(
-            "Have you had any fever or chills, or noticed your bleeding "
-            "smelling different — a strong, unpleasant smell? Any feeling of "
-            "being generally unwell, shivery, or just 'not right'?"
+            "Have you passed any clots that were bigger than a 50p coin?"
         ),
         follow_up_escalation=EscalationTier.EMERGENCY_999,
         validation_status="draft_awaiting_clinical_review",
     ),
-    "venous_thromboembolism": RedFlagProbe(
-        flag_code="venous_thromboembolism",
-        category=RedFlagCategory.PATHWAY_SPECIFIC,
-        nice_basis="NG89 §1.3 / NG158",
+    "postpartum_haemorrhage_haemodynamic": RedFlagProbe(
+        flag_code="postpartum_haemorrhage_haemodynamic",
+        parent_flag_code="postpartum_haemorrhage",
+        category=RedFlagCategory.HAEMORRHAGE,
+        nice_basis="NG192 §1.5.8",
         patient_facing_question=(
-            "Any pain, swelling, redness, or warmth in one of your calves — "
-            "especially if it feels tender when you press on it? Any sudden "
-            "breathlessness or chest pain when you breathe in?"
+            "Have you felt faint, dizzy, or lightheaded — especially when you stand up?"
         ),
         follow_up_escalation=EscalationTier.EMERGENCY_999,
         validation_status="draft_awaiting_clinical_review",
     ),
-    "postnatal_depression_severe": RedFlagProbe(
-        flag_code="postnatal_depression_severe",
+
+    # ── postnatal_depression_severe (2 probes, differentiated escalation) ──
+    "postnatal_depression_passive_ideation": RedFlagProbe(
+        flag_code="postnatal_depression_passive_ideation",
+        parent_flag_code="postnatal_depression_severe",
         category=RedFlagCategory.SUICIDAL_IDEATION,
         nice_basis="NG192 §1.6 / CG192",
         patient_facing_question=(
-            "Have you had any thoughts of harming yourself, or thoughts that "
-            "you or your family would be better off without you? Even if they "
-            "feel fleeting — it's important for us to know."
+            "Have you had any thoughts that you or your family would be better "
+            "off without you?"
         ),
         follow_up_escalation=EscalationTier.SAME_DAY,
         validation_status="draft_awaiting_clinical_review",
-        # CLINICAL_REVIEW_NEEDED: escalation tier — reviewer to confirm SAME_DAY
-        # for active ideation without plan vs EMERGENCY_999 for ideation with
-        # intent/plan. Draft is conservative; may need splitting into two
-        # probes with different tiers.
+        # CLINICAL_REVIEW_NEEDED: reviewer to confirm SAME_DAY for passive
+        # ideation vs EMERGENCY_999. Current draft differentiates from active.
     ),
+    "postnatal_depression_active_ideation": RedFlagProbe(
+        flag_code="postnatal_depression_active_ideation",
+        parent_flag_code="postnatal_depression_severe",
+        category=RedFlagCategory.SUICIDAL_IDEATION,
+        nice_basis="NG192 §1.6 / CG192",
+        patient_facing_question=(
+            "Have you had any thoughts about harming yourself, or about ending "
+            "your own life?"
+        ),
+        follow_up_escalation=EscalationTier.EMERGENCY_999,
+        validation_status="draft_awaiting_clinical_review",
+    ),
+
+    # ... (further 9 probes for wound_dehiscence, pe_symptoms,
+    # pre_eclampsia_signs, infant_feeding_failure — each split into
+    # single-observation probes per the principle. Full content in
+    # the actual obstetric.py file.)
 }
 ```
 
 **Tone / wording principles (applied throughout):**
 - NHS-plain language, no clinical jargon (no "puerperal pyrexia", no "dyspnoea").
-- Specific physical-sign anchors the patient can evaluate ("pad in less than an hour", "bigger than a 50p coin").
+- Specific physical-sign anchors the patient can evaluate ("maternity pad in less than an hour", "bigger than a 50p coin").
 - Invite disclosure without judgment, especially for mental-health probes.
-- No compound questions — each probe asks one clinical question even if it has multiple observational parts.
+- **One observation per probe** — the template principle above is non-negotiable across all 15 pathways.
 
-**Scale across 15 pathways:** ~4-8 red flag probes per pathway, ~80-100 total Red Flag Probe entries for Phase 3.
+**Scale across 15 pathways:** post-splitting, ~10-18 red flag probes per pathway (up from the pre-split ~4-8), ~150-200 total Red Flag Probe entries for Phase 3. The split increases volume but reduces ambiguity at trigger time.
 
 ### 5. Output file structure
 
