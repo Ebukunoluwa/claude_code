@@ -634,7 +634,7 @@ async def get_patient_scores(
             if ext.medication_adherence is not None:
                 raw["adherence"] = 0.0 if ext.medication_adherence else 3.0
 
-            from ..clinical.scoring import score_0_10_to_0_4
+            from ..clinical_intelligence.scoring import score_0_10_to_0_4
             for generic, val in raw.items():
                 if val is None:
                     continue

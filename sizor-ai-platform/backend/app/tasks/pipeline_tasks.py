@@ -502,7 +502,7 @@ def process_call(call_id: str):
                         }.items():
                             val = actual.get(generic_domain)
                             if val is not None:
-                                from ..clinical.scoring import score_0_10_to_0_4
+                                from ..clinical_intelligence.scoring import score_0_10_to_0_4
                                 score = score_0_10_to_0_4(val)
                                 var_d = variance.get(generic_domain, {})
                                 for pd in pathway_domains:

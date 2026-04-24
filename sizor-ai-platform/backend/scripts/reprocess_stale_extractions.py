@@ -40,7 +40,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.clinical.risk_score import breakdown_to_dict, compute_risk_score
-from app.clinical.scoring import score_0_10_to_0_4
+from app.clinical_intelligence.scoring import score_0_10_to_0_4
 from app.clinical_intelligence.smoothing import smooth_extraction, to_persistable_dict
 from app.config import settings
 from app.models import (
