@@ -39,61 +39,20 @@ CREATE INDEX IF NOT EXISTS idx_patient_pathways_opcs_code ON patient_pathways(op
 CREATE INDEX IF NOT EXISTS idx_patient_pathways_active ON patient_pathways(active) WHERE active = TRUE;
 
 -- -----------------------------------------------------------------------------
--- domain_scores
--- Per-domain scores recorded at each call, with benchmark comparison fields.
--- above_upper_bound is a computed boolean (handled in application layer for
--- SQLAlchemy ORM compatibility).
+-- domain_scores and pathway_soap_notes — REMOVED 2026-04-24
+-- Both tables were defined here historically but never written or read by any
+-- Python code. Dropped via Alembic revision c2e4a6f801b3. Row count was zero
+-- at drop time. See PLAN.md Sec 6 D2 for the rationale; the migration's
+-- downgrade() block recreates the original definitions if needed.
 -- -----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS domain_scores (
-    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    patient_id          UUID NOT NULL REFERENCES patients(patient_id) ON DELETE CASCADE,
-    call_id             UUID REFERENCES call_records(call_id) ON DELETE SET NULL,
-    opcs_code           VARCHAR(20) NOT NULL,
-    domain              VARCHAR(100) NOT NULL,
-    day_post_discharge  INTEGER NOT NULL,
-    raw_response        TEXT,
-    score               SMALLINT NOT NULL CHECK (score BETWEEN 0 AND 4),
-    expected_score      SMALLINT,
-    upper_bound_score   SMALLINT,
-    -- above_upper_bound is computed in application layer:
-    -- above_upper_bound BOOLEAN GENERATED ALWAYS AS (score > upper_bound_score) STORED,
-    above_upper_bound   BOOLEAN,
-    trajectory          VARCHAR(30),   -- improving/stable/deteriorating/insufficient_data
-    ftp_flag            BOOLEAN NOT NULL DEFAULT FALSE,
-    escalation_flag     BOOLEAN NOT NULL DEFAULT FALSE,
-    escalation_tier     VARCHAR(20),   -- 999/same_day/urgent_gp/next_call
-    scored_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_domain_scores_patient_id ON domain_scores(patient_id);
-CREATE INDEX IF NOT EXISTS idx_domain_scores_call_id ON domain_scores(call_id);
-CREATE INDEX IF NOT EXISTS idx_domain_scores_opcs_domain ON domain_scores(opcs_code, domain);
-CREATE INDEX IF NOT EXISTS idx_domain_scores_escalation ON domain_scores(escalation_flag) WHERE escalation_flag = TRUE;
-
--- -----------------------------------------------------------------------------
--- pathway_soap_notes
--- Structured SOAP notes per domain per call (separate from existing soap_notes table).
--- -----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS pathway_soap_notes (
-    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    patient_id          UUID NOT NULL REFERENCES patients(patient_id) ON DELETE CASCADE,
-    call_id             UUID REFERENCES call_records(call_id) ON DELETE SET NULL,
-    domain              VARCHAR(100) NOT NULL,
-    subjective          TEXT,
-    objective           TEXT,
-    assessment          TEXT,
-    plan                TEXT,
-    nice_reference      VARCHAR(50),
-    escalation_action   TEXT,
-    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_pathway_soap_notes_patient_id ON pathway_soap_notes(patient_id);
-CREATE INDEX IF NOT EXISTS idx_pathway_soap_notes_call_id ON pathway_soap_notes(call_id);
 
 -- -----------------------------------------------------------------------------
 -- patient_red_flags
 -- Tracks active and resolved red flags at domain level across the monitoring window.
+-- DEFERRED PROMOTION (PLAN.md Sec 6 D2): kept in schema pending Phase 4's
+-- patient-facing red-flag probing work. urgency_flags (modelled as UrgencyFlag)
+-- handles generic urgency today; this table's per-domain + resolution-tracking
+-- shape is the likely home for Phase 4 once that work lands.
 -- -----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS patient_red_flags (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
