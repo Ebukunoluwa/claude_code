@@ -942,8 +942,9 @@ K57_RED_FLAG_PROBES: dict[str, RedFlagProbe] = {
         category=RedFlagCategory.NEW_FOCAL_NEURO,
         nice_basis="NG128 / NG196",
         patient_facing_question=(
-            "If you hold both arms out straight in front of you right now, "
-            "does one drop down or feel weaker than the other?"
+            "Has anyone around you noticed your arm looking weaker on one "
+            "side today — dropping things, struggling to lift a kettle, or "
+            "not moving the same as the other arm?"
         ),
         follow_up_escalation=EscalationTier.EMERGENCY_999,
         validation_status=_DRAFT,
@@ -1054,12 +1055,12 @@ K57_RED_FLAG_PROBES: dict[str, RedFlagProbe] = {
         validation_status=_DRAFT,
     ),
 
-    # CLINICAL_REVIEW_NEEDED: stroke_signs probes use coverage-check
-    # framing for face-drooping and speech-difficulty because the
-    # patient often cannot self-detect these deficits. Arm-weakness
-    # probe asks the patient to do a live check (both arms out). Is
-    # this active-participation probe safe via voice-agent phrasing,
-    # or does it require a different conversational handoff?
+    # All three FAST probes use observational / coverage-check framing.
+    # Arm-weakness was originally drafted as an active-participation
+    # probe (asking the patient to hold both arms out) but rewritten
+    # observational after review — elderly patient with genuine
+    # weakness attempting the test is a falls risk, and unsupervised
+    # self-test has a high false-negative rate.
 }
 
 
