@@ -13,7 +13,7 @@ from .auth import get_current_clinician
 from ..services.nice_guidelines import get_guidelines_for_condition
 from ..services.ftp_service import interpolate_expected
 from ..config import settings
-from ..clinical.pathway_map import OPCS_TO_NICE_MAP
+from ..clinical_intelligence.pathway_map import OPCS_TO_NICE_MAP
 
 router = APIRouter(prefix="/patients", tags=["patients"])
 
@@ -793,7 +793,7 @@ async def get_pathway_info(
     if not pw:
         return {"has_pathway": False}
 
-    from ..clinical.pathway_map import OPCS_TO_NICE_MAP
+    from ..clinical_intelligence.pathway_map import OPCS_TO_NICE_MAP
     opcs_code = pw["opcs_code"]
     pw_meta = OPCS_TO_NICE_MAP.get(opcs_code, {})
 

@@ -10,7 +10,7 @@ from sqlalchemy import select, text
 from ..database import get_db
 from ..models import CallSchedule, Patient, PatientMedicalProfile, CallRecord, SOAPNote, ClinicalExtraction, UrgencyFlag, LongitudinalSummary
 from ..config import settings
-from ..clinical.pathway_map import OPCS_TO_NICE_MAP
+from ..clinical_intelligence.pathway_map import OPCS_TO_NICE_MAP
 from ..clinical.benchmarks import BENCHMARK_DATA
 
 

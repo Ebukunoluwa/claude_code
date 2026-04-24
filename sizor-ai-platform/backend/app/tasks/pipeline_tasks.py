@@ -82,7 +82,7 @@ def process_call(call_id: str):
                     return
 
             # Fetch pathway domains so extraction captures 0-4 domain scores
-            from ..clinical.pathway_map import OPCS_TO_NICE_MAP
+            from ..clinical_intelligence.pathway_map import OPCS_TO_NICE_MAP
             _pw_row = await db.execute(text("""
                 SELECT opcs_code, domains FROM patient_pathways
                 WHERE patient_id = :pid AND active = true
@@ -508,7 +508,7 @@ def process_call(call_id: str):
                                 for pd in pathway_domains:
                                     prev_scores[pd] = {"day": day, "score": score, "ftp_flag": var_d.get("worse", False)}
 
-                    from ..clinical.pathway_map import OPCS_TO_NICE_MAP
+                    from ..clinical_intelligence.pathway_map import OPCS_TO_NICE_MAP
                     pw_data = OPCS_TO_NICE_MAP.get(opcs_code, {})
                     nice_ids = pw_data.get("nice_ids", [])
 
