@@ -17,12 +17,14 @@ from ..config import settings
 from ..models import (
     CallRecord, ClinicalExtraction, SOAPNote, UrgencyFlag,
     LongitudinalSummary, FTPRecord, Patient, CallSchedule, DomainBenchmark,
+    CallCoverageReport,
 )
 from ..services.post_call_pipeline import (
     extract_clinical_scores, generate_soap_note, generate_ftp_reasoning,
     evaluate_flags, generate_longitudinal_summary,
 )
 from ..services.ftp_service import compute_ftp
+from ..clinical_intelligence.coverage import validate_call_coverage
 from ..clinical_intelligence.risk_score import compute_risk_score, breakdown_to_dict
 
 
@@ -233,6 +235,98 @@ def process_call(call_id: str):
                     raw_extraction_json=scores_raw,
                 )
                 db.add(extraction)
+
+            # ── Task 1b: Coverage enforcement (Phase 4) ──────────────────
+            # Post-call audit: which Required Questions and Red Flag
+            # Probes did the voice agent actually cover? LLM-based
+            # classifier compares the Phase 3 manifest against the
+            # transcript.
+            #
+            # FAIL-OPEN GUARANTEE: this block MUST NOT crash the
+            # pipeline. Extraction + SOAP + FTP + smoothing + risk
+            # score + longitudinal summary are higher-priority than
+            # the coverage audit. Any exception here is logged and the
+            # pipeline continues. A failed CoverageReport persists as
+            # a row with coverage_percentage=None (the equivalent of
+            # ClinicalExtraction's 'failed' extraction_status).
+            if settings.coverage_enforcement_enabled:
+                coverage_report_obj = None
+                try:
+                    coverage_report_obj = await validate_call_coverage(
+                        transcript=transcript,
+                        opcs_code=_opcs_code,
+                        call_day=day,
+                    )
+                except Exception as exc:
+                    # Classifier itself already never raises — this catches
+                    # downstream import errors, settings misconfiguration,
+                    # or other unexpected failures. Log + continue.
+                    logger.error(
+                        "Coverage classifier raised for call %s — pipeline continuing: %s",
+                        call_id, exc, exc_info=True,
+                    )
+
+                # Persist whatever we got (or a NULL-coverage row if the
+                # classifier raised) so the dashboard has a record of the
+                # attempt. Separate try/except so DB persistence errors
+                # also don't crash the pipeline.
+                try:
+                    if coverage_report_obj is None:
+                        # Classifier raised — build a minimal "failed" row
+                        # so the dashboard sees coverage was attempted.
+                        from ..clinical_intelligence.models import CoverageReport
+                        coverage_report_obj = CoverageReport(
+                            coverage_percentage=None,
+                        )
+                    db.add(CallCoverageReport(
+                        call_id=call.call_id,
+                        patient_id=call.patient_id,
+                        opcs_code=_opcs_code,
+                        day_in_recovery=day,
+                        required_questions_expected=coverage_report_obj.required_questions_expected,
+                        required_questions_asked=coverage_report_obj.required_questions_asked,
+                        required_questions_patient_declined=coverage_report_obj.required_questions_patient_declined,
+                        red_flag_probes_expected=coverage_report_obj.red_flag_probes_expected,
+                        red_flag_probes_asked=coverage_report_obj.red_flag_probes_asked,
+                        red_flag_probes_positive=coverage_report_obj.red_flag_probes_positive,
+                        socrates_probes_triggered=coverage_report_obj.socrates_probes_triggered,
+                        socrates_probes_completed=coverage_report_obj.socrates_probes_completed,
+                        coverage_percentage=coverage_report_obj.coverage_percentage,
+                        incomplete_items=coverage_report_obj.incomplete_items,
+                        raw_classifier_output=coverage_report_obj.raw_classifier_output,
+                    ))
+                except Exception as exc:
+                    logger.error(
+                        "Coverage report persistence failed for call %s — pipeline continuing: %s",
+                        call_id, exc, exc_info=True,
+                    )
+
+                # Dashboard-visible warnings. These are log signals; the
+                # row itself is the authoritative record.
+                if coverage_report_obj and \
+                        coverage_report_obj.coverage_percentage is not None and \
+                        coverage_report_obj.coverage_percentage < (settings.coverage_threshold * 100):
+                    logger.warning(
+                        "Call %s coverage below threshold (%.1f%% < %.1f%%) — %d items incomplete",
+                        call_id,
+                        coverage_report_obj.coverage_percentage,
+                        settings.coverage_threshold * 100,
+                        len(coverage_report_obj.incomplete_items),
+                    )
+                # A missed red flag probe is always a warning regardless
+                # of the overall coverage threshold — red flags must be
+                # asked every call.
+                if coverage_report_obj:
+                    expected_rfp_set = set(coverage_report_obj.red_flag_probes_expected)
+                    missed_rfps = [
+                        item for item in coverage_report_obj.incomplete_items
+                        if item in expected_rfp_set
+                    ]
+                    if missed_rfps:
+                        logger.warning(
+                            "Call %s missed %d red flag probe(s): %s",
+                            call_id, len(missed_rfps), missed_rfps,
+                        )
 
             # Task 2: Generate SOAP note
             try:
