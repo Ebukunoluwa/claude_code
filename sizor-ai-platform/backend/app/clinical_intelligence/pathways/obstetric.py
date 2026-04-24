@@ -251,16 +251,21 @@ R17_REQUIRED_QUESTIONS: list[RequiredQuestion] = [
         "NG192 §1.6",
     ),
 
-    # Day 8-14 emphasis: wound fully healing, EPDS if not already done
+    # Day 8-14 / 15-28 emphasis: coverage check for clinician-administered EPDS
+    # Corrected from draft (which had the voice agent attempt to administer
+    # EPDS directly). The voice agent now asks whether the patient's own
+    # care team has run a mood questionnaire — a coverage audit question,
+    # not an administration question.
     _rq(
         "postnatal_depression_screen",
-        "A formal mood questionnaire — the Edinburgh Postnatal Depression Scale — is often done around two weeks. Can we go through it together today?",
-        [(8, 14)],
+        "Has anyone from your care team done a mood questionnaire with you since you got home?",
+        [(8, 14), (15, 28)],
         "NG192 §1.6 / CG192",
     ),
-    # CLINICAL_REVIEW_NEEDED: above question assumes voice-agent administers
-    # EPDS; reviewer to confirm whether the formal EPDS should be flagged for
-    # clinician/midwife administration only, with voice-agent just screening.
+    # CLINICAL_REVIEW_NEEDED: the reviewer may want to reintroduce voice-agent
+    # EPDS administration if their trust permits it. Current draft is the
+    # conservative position — voice agent confirms coverage by the clinician
+    # team rather than running the instrument itself.
 
     # Day 15-28 emphasis: psychosocial, contraception, return to normal
     _rq(
@@ -373,11 +378,27 @@ R17_RED_FLAG_PROBES: dict[str, RedFlagProbe] = {
         follow_up_escalation=EscalationTier.EMERGENCY_999,
         validation_status=_DRAFT,
     ),
+    "pe_symptoms_calf_signs": RedFlagProbe(
+        flag_code="pe_symptoms_calf_signs",
+        parent_flag_code="pe_symptoms",
+        category=RedFlagCategory.PATHWAY_SPECIFIC,
+        nice_basis="NG89 §1.3 / NG158",
+        patient_facing_question=(
+            "Any pain, swelling, redness, or warmth in one of your calves — "
+            "especially tender when you press on it?"
+        ),
+        follow_up_escalation=EscalationTier.EMERGENCY_999,
+        validation_status=_DRAFT,
+    ),
     # CLINICAL_REVIEW_NEEDED: calf DVT probe is a close cousin clinically
-    # (DVT is the precursor to PE). Reviewer to decide whether calf_signs
-    # belongs under pe_symptoms parent or needs its own upstream flag.
+    # (DVT is the precursor to PE). Currently parented under pe_symptoms;
+    # reviewer to decide whether it belongs there long-term or warrants
+    # a dedicated dvt_signs upstream code with its own probes.
 
-    # ══ pre_eclampsia_signs — 3 probes, all SAME_DAY ════════════════════
+    # ══ pre_eclampsia_signs — 3 probes, all EMERGENCY_999 ═══════════════
+    # Corrected from draft SAME_DAY during review. Postnatal severe
+    # headache, visual disturbance, or epigastric pain is imminent
+    # eclampsia per NG133 §1.5 — requires 999 escalation, not same-day.
     "pre_eclampsia_headache": RedFlagProbe(
         flag_code="pre_eclampsia_headache",
         parent_flag_code="pre_eclampsia_signs",
@@ -386,7 +407,7 @@ R17_RED_FLAG_PROBES: dict[str, RedFlagProbe] = {
         patient_facing_question=(
             "Have you had a severe headache that doesn't go away with simple painkillers?"
         ),
-        follow_up_escalation=EscalationTier.SAME_DAY,
+        follow_up_escalation=EscalationTier.EMERGENCY_999,
         validation_status=_DRAFT,
     ),
     "pre_eclampsia_visual": RedFlagProbe(
@@ -397,7 +418,7 @@ R17_RED_FLAG_PROBES: dict[str, RedFlagProbe] = {
         patient_facing_question=(
             "Any changes to your vision — blurring, flashing lights, or spots?"
         ),
-        follow_up_escalation=EscalationTier.SAME_DAY,
+        follow_up_escalation=EscalationTier.EMERGENCY_999,
         validation_status=_DRAFT,
     ),
     "pre_eclampsia_epigastric": RedFlagProbe(
@@ -408,7 +429,7 @@ R17_RED_FLAG_PROBES: dict[str, RedFlagProbe] = {
         patient_facing_question=(
             "Any pain in the upper right part of your tummy, just below the ribs?"
         ),
-        follow_up_escalation=EscalationTier.SAME_DAY,
+        follow_up_escalation=EscalationTier.EMERGENCY_999,
         validation_status=_DRAFT,
     ),
 

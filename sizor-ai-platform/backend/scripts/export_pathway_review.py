@@ -169,36 +169,44 @@ def _render_clinical_review_needed_flags(
 ) -> str:
     """Scan the source file for CLINICAL_REVIEW_NEEDED comments and
     surface each one here. Keeps the reviewer's open-question list
-    visible without them having to grep the Python source."""
-    source_path = Path(module.__file__)
-    flags = []
-    if source_path.exists():
-        lines = source_path.read_text().splitlines()
-        in_flag = False
-        buf: list[str] = []
-        for line in lines:
-            stripped = line.strip()
-            if "CLINICAL_REVIEW_NEEDED" in stripped:
-                in_flag = True
-                buf = [stripped.lstrip("# ").strip()]
-            elif in_flag:
-                if stripped.startswith("#"):
-                    buf.append(stripped.lstrip("# ").strip())
-                else:
-                    flags.append(" ".join(buf).strip())
-                    in_flag = False
-                    buf = []
-        if in_flag and buf:
-            flags.append(" ".join(buf).strip())
+    visible without them having to grep the Python source.
 
-    # Filter to flags that mention this opcs or have no opcs context
-    # (i.e. any flag in the source file applies to the pathway).
+    Only matches lines that START with '# CLINICAL_REVIEW_NEEDED'
+    after stripping whitespace — this excludes module docstring prose
+    that mentions the concept. Continuation lines must be contiguous
+    non-empty comments."""
+    source_path = Path(module.__file__)
+    if not source_path.exists():
+        return "_(no source file to scan)_\n"
+
+    flags: list[str] = []
+    current: list[str] = []
+
+    def _flush():
+        if current:
+            flags.append(" ".join(current).strip())
+            current.clear()
+
+    for line in source_path.read_text().splitlines():
+        stripped = line.strip()
+        # Start of a new flag block — only if the line begins with
+        # '# CLINICAL_REVIEW_NEEDED' (with or without a space after '#').
+        if stripped.startswith("# CLINICAL_REVIEW_NEEDED") or \
+                stripped.startswith("#CLINICAL_REVIEW_NEEDED"):
+            _flush()
+            current.append(stripped.lstrip("# ").strip())
+        # Continuation line — must be a non-empty comment line that
+        # does not itself start a new flag.
+        elif current and stripped.startswith("#") and stripped != "#":
+            current.append(stripped.lstrip("# ").strip())
+        # End of block (blank comment, code line, blank line).
+        elif current:
+            _flush()
+    _flush()
+
     if not flags:
         return "_(no CLINICAL_REVIEW_NEEDED flags in source)_\n"
-    lines = []
-    for flag in flags:
-        lines.append(f"- [ ] {flag}")
-    return "\n".join(lines) + "\n"
+    return "\n".join(f"- [ ] {flag}" for flag in flags) + "\n"
 
 
 def render(opcs: str) -> str:
