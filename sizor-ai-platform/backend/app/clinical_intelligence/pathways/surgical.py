@@ -160,7 +160,7 @@ H01_REQUIRED_QUESTIONS: list[RequiredQuestion] = [
     _rq(
         "H01",
         "bowel_function",
-        "Have your bowels opened normally, and are you passing wind without difficulty — any new diarrhoea, constipation, or urgency?",
+        "Have you been pooing normally, and farting without difficulty — any new diarrhoea, constipation, or urgency?",
         [(1, 3), (4, 7), (8, 14)],
         "NG61",
     ),
@@ -249,8 +249,8 @@ H01_RED_FLAG_PROBES: dict[str, RedFlagProbe] = {
         category=RedFlagCategory.PATHWAY_SPECIFIC,
         nice_basis="NG61 / QS48",
         patient_facing_question=(
-            "Any new urgency to open your bowels, passing mucus from your "
-            "back passage, or a feeling of pressure or fullness low down?"
+            "Any new urgency to poo, passing mucus from your bum, or a "
+            "feeling of pressure or fullness low down?"
         ),
         follow_up_escalation=EscalationTier.SAME_DAY,
         validation_status=_DRAFT,
@@ -282,7 +282,7 @@ H01_RED_FLAG_PROBES: dict[str, RedFlagProbe] = {
         category=RedFlagCategory.PATHWAY_SPECIFIC,
         nice_basis="NG61",
         patient_facing_question=(
-            "Have you not passed any wind or opened your bowels for more than 24 hours?"
+            "Have you not farted or pooed for more than 24 hours?"
         ),
         follow_up_escalation=EscalationTier.SAME_DAY,
         validation_status=_DRAFT,
