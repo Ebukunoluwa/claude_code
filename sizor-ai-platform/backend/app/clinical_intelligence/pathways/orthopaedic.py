@@ -68,6 +68,7 @@ _DRAFT = "draft_awaiting_clinical_review"
 
 # ═══════════════════════════════════════════════════════════════════════
 # W40 — Total Knee Replacement
+# Patient-facing wording audit: 2026-04-24 (1 change — see below)
 # ═══════════════════════════════════════════════════════════════════════
 
 W40_PLAYBOOK = PathwayPlaybook(
@@ -310,16 +311,10 @@ W40_RED_FLAG_PROBES: dict[str, RedFlagProbe] = {
         nice_basis="NG89 §1.9 / NG158",
         patient_facing_question=(
             "In your operated leg — any calf pain or tenderness that's new "
-            "or worsening in the last day or two, separate from the general "
-            "post-op swelling you had before?"
+            "in the last 24 hours, separate from the general post-op swelling?"
         ),
         follow_up_escalation=EscalationTier.EMERGENCY_999,
         validation_status=_DRAFT,
-        # CLINICAL_REVIEW_NEEDED: wording still contains "you had before"
-        # which edges close to a memory-comparison phrasing. Reviewer to
-        # confirm whether the "last day or two" anchor is sufficient or
-        # whether the phrase needs tightening to a pure 24-hour / pure
-        # behavioural anchor.
     ),
 
     # ══ fever_above_38_5 — 3 probes: reading, symptoms, rigors ═════════
