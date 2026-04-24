@@ -584,6 +584,17 @@ W37_REQUIRED_QUESTIONS: list[RequiredQuestion] = [
     # Hip-specific: precautions against posterior dislocation in the
     # first 6 weeks. Framed as concrete behaviours rather than clinical
     # terms ("dislocation", "flexion past 90°").
+    #
+    # TEMPLATE DEVIATION — compound phrasing by design. Hip precautions
+    # are taught to the patient pre-op as a bundled behavioural rule
+    # set and reinforced post-op as a bundle. Splitting into three
+    # separate RQs (one per precaution) would fragment a single
+    # clinical concept the patient already holds as one thing. This is
+    # a conscious, one-off exception to the one-observation-per-RQ
+    # principle applied elsewhere. Future pathways MUST NOT treat this
+    # as license for general compound RQ phrasing; the exception
+    # applies only to bundled patient-education constructs like hip
+    # precautions where the bundle is the clinical unit.
     _rq(
         "W37",
         "mobility_progress",
@@ -1070,15 +1081,20 @@ W38_RED_FLAG_PROBES: dict[str, RedFlagProbe] = {
     # W38 upstream uses 'wound_infection' parent (not 'wound_dehiscence'
     # as in W37/W40). Same splitting logic: spreading-redness and
     # discharge as distinct observations.
+    #
+    # Escalation tiers for W38 are higher than W37/W40's wound_infection
+    # equivalents: elderly hip-fracture cohort has substantially higher
+    # sepsis mortality than elective arthroplasty cohorts, so spreading
+    # redness is escalated to EMERGENCY_999 rather than SAME_DAY.
     "wound_infection_spreading_redness": RedFlagProbe(
         flag_code="wound_infection_spreading_redness",
         parent_flag_code="wound_infection",
-        category=RedFlagCategory.PATHWAY_SPECIFIC,
-        nice_basis="QS48 / NG124 §1.8",
+        category=RedFlagCategory.SEPSIS_SIGNS,
+        nice_basis="QS48 / NG124 §1.8 / NG51",
         patient_facing_question=(
             "Has the redness around the wound spread beyond the immediate scar area in the last 24 hours?"
         ),
-        follow_up_escalation=EscalationTier.SAME_DAY,
+        follow_up_escalation=EscalationTier.EMERGENCY_999,
         validation_status=_DRAFT,
     ),
     "wound_infection_discharge": RedFlagProbe(
@@ -1092,6 +1108,14 @@ W38_RED_FLAG_PROBES: dict[str, RedFlagProbe] = {
         follow_up_escalation=EscalationTier.SAME_DAY,
         validation_status=_DRAFT,
     ),
+    # CLINICAL_REVIEW_NEEDED: W38 wound_infection_spreading_redness is
+    # escalated to EMERGENCY_999 (vs SAME_DAY for the equivalent W37/W40
+    # wound_dehiscence_discharge / W43 wound_infection_spreading_redness
+    # probes). Rationale is cohort-specific: elderly hip-fracture
+    # patients have higher sepsis mortality than elective arthroplasty
+    # cohorts, and spreading cellulitis on this cohort warrants 999
+    # rather than same-day GP review. Reviewer to confirm or moderate
+    # this cohort-based escalation delta.
 
     # ══ falls_with_injury — 3 probes ═══════════════════════════════════
     # Elderly cohort, often on anticoagulants. Probes split by what
@@ -1184,6 +1208,7 @@ W43_PLAYBOOK = PathwayPlaybook(
         "wound_infection",
         "pe_symptoms",
         "persistent_swelling",
+        "fever_above_38_5",
     ],
     validation_status=_DRAFT,
 )
@@ -1238,9 +1263,11 @@ W43_TRAJECTORIES: list[DomainTrajectoryEntry] = [
 
 
 W43_REQUIRED_QUESTIONS: list[RequiredQuestion] = [
-    # Wound RQ incorporates fever-in-24h coverage since there is no
-    # separate infection_signs domain or fever_above_38_5 red flag
-    # for W43 — see CLINICAL_REVIEW_NEEDED at the end of the file.
+    # Wound RQ retains a narrative fever prompt even though W43 now has
+    # a 3-probe fever_above_38_5 set. W43 has no infection_signs domain
+    # (unlike W37/W40) so this RQ is the sole narrative hook for
+    # systemic-infection signs; the probes provide the binary red-flag
+    # checks on top.
     _rq(
         "W43",
         "wound_healing",
@@ -1417,15 +1444,51 @@ W43_RED_FLAG_PROBES: dict[str, RedFlagProbe] = {
         validation_status=_DRAFT,
     ),
 
-    # CLINICAL_REVIEW_NEEDED: pathway_map lists no fever_above_38_5 red
-    # flag for W43 (W37 and W40 both have it). QS48 SSI surveillance
-    # applies to all surgical wounds, so fever monitoring is still
-    # relevant. Current draft folds fever coverage into the
-    # wound_healing RQ ("a fever in the last 24 hours") rather than
-    # adding a probe set. Reviewer to confirm: should W43 gain the
-    # same 3-probe fever set (reading / symptoms / rigors) as W37/W40,
-    # or is the RQ-level coverage sufficient given the lower UKR SSI
-    # baseline?
+    # ══ fever_above_38_5 — 3 probes: reading, symptoms, rigors ═════════
+    # Ported verbatim from W37/W40 with identical thresholds and
+    # escalations. QS48 SSI surveillance applies to all surgical wounds
+    # including UKR.
+    "fever_above_38_5_reading": RedFlagProbe(
+        flag_code="fever_above_38_5_reading",
+        parent_flag_code="fever_above_38_5",
+        category=RedFlagCategory.PATHWAY_SPECIFIC,
+        nice_basis="QS48 / NG226 §1.8",
+        patient_facing_question=(
+            "If you have a thermometer — has your temperature been above 38?"
+        ),
+        follow_up_escalation=EscalationTier.SAME_DAY,
+        validation_status=_DRAFT,
+    ),
+    "fever_above_38_5_symptoms": RedFlagProbe(
+        flag_code="fever_above_38_5_symptoms",
+        parent_flag_code="fever_above_38_5",
+        category=RedFlagCategory.PATHWAY_SPECIFIC,
+        nice_basis="QS48 / NG226 §1.8",
+        patient_facing_question=(
+            "Have you felt hot-and-cold, sweaty, or feverish in the last 24 hours?"
+        ),
+        follow_up_escalation=EscalationTier.SAME_DAY,
+        validation_status=_DRAFT,
+    ),
+    "fever_with_rigors": RedFlagProbe(
+        flag_code="fever_with_rigors",
+        parent_flag_code="fever_above_38_5",
+        category=RedFlagCategory.SEPSIS_SIGNS,
+        nice_basis="QS48 / NG51 §1.1",
+        patient_facing_question=(
+            "Have you had any episodes of uncontrollable shivering or shaking?"
+        ),
+        follow_up_escalation=EscalationTier.EMERGENCY_999,
+        validation_status=_DRAFT,
+    ),
+
+    # CLINICAL_REVIEW_NEEDED: fever probe thresholds ported verbatim
+    # from W40 (TKR). UKR is a smaller intervention with a lower SSI
+    # baseline rate than TKR — reviewer to confirm whether the same
+    # 38°C / rigors thresholds and escalations are calibrated correctly
+    # for UKR, or whether the cohort permits a slightly higher trigger
+    # threshold. Presence of the probe set is not in question; only
+    # calibration.
     #
     # CLINICAL_REVIEW_NEEDED: persistent_swelling probes all SAME_DAY.
     # Reviewer to confirm that co-firing of persistent_swelling_with_
