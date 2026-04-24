@@ -34,6 +34,9 @@ class CallRecord(Base):
     decisions = relationship("ClinicalDecision", back_populates="call")
 
 
+# See PLAN.md §Phase-2-decisions: this model needs an audit for ORM↔DB drift
+# parity. Adding fields without updating this class broke the reprocess script
+# in Phase 1 (2026-04-24). Add any new column here AND in the migration.
 class ClinicalExtraction(Base):
     __tablename__ = "clinical_extractions"
 
@@ -53,6 +56,11 @@ class ClinicalExtraction(Base):
     smoothed_scores: Mapped[dict] = mapped_column(JSONB, default=dict)
     risk_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     risk_score_breakdown: Mapped[dict] = mapped_column(JSONB, default=dict)
+    # Phase 1 data-integrity additions (migration b1c3d5e7f91a):
+    extraction_status: Mapped[str] = mapped_column(
+        String(30), nullable=False, server_default="extracted"
+    )
+    extraction_status_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     call = relationship("CallRecord", back_populates="extraction")
 
