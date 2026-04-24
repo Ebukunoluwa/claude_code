@@ -36,12 +36,14 @@ from .models import (
     SocratesDimensionEntry,
     SocratesProbeTemplate,
     ValidationStatus,
+    ValidationWarning,
 )
 from .scoring import (
     compute_overall_call_status,
     score_0_10_to_0_4,
     score_patient_domain,
 )
+from .validation import validate_extraction_plausibility
 
 __all__ = [
     # Models
@@ -68,8 +70,11 @@ __all__ = [
     "SocratesDimensionEntry",
     "SocratesProbeTemplate",
     "ValidationStatus",
+    "ValidationWarning",
     # Scoring
     "compute_overall_call_status",
     "score_0_10_to_0_4",
     "score_patient_domain",
+    # Validation
+    "validate_extraction_plausibility",
 ]

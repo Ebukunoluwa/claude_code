@@ -371,6 +371,24 @@ class CoverageReport(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class ValidationWarning(BaseModel):
+    """One warning from validate_extraction_plausibility. Non-blocking —
+    the caller chooses what to do (log, store, surface to clinician).
+
+    codes are a closed Literal (no open-ended "..." per approved Q3 —
+    the validation module is deliberately TIGHT in Phase 2: exactly the
+    two named detectors, no generalisation. Extending this Literal is
+    a PLAN-level scope decision, not a drive-by edit."""
+    code: Literal[
+        "first_call_all_fours",
+        "all_domains_dropped_to_empty",
+    ]
+    severity: Literal["info", "warn"]
+    detail: str
+    affected_domains: list[str] = Field(default_factory=list)
+    model_config = ConfigDict(extra="forbid")
+
+
 class PromptContext(BaseModel):
     """Phase 4/6: the full bundle assembled before each call, consumed by
     the prompt builder. Stub shape defined here; Phase 4/6 populates. The
