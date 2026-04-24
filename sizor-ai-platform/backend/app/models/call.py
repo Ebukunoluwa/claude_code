@@ -23,6 +23,11 @@ class CallRecord(Base):
     probe_instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
     call_sid: Mapped[str | None] = mapped_column(String(64), nullable=True)  # Twilio CallSid
     outcome_call_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("call_records.call_id"), nullable=True)
+    # Phase 2.5 Fix 3 (migration e4f6a8c0b5d2): propagated from matching
+    # CallSchedule.call_type at ingest, or set to 'probe' when probe_call_id
+    # is present. Nullable for legacy rows that the backfill couldn't match.
+    # Values: 'routine' / 'retry' / 'continuation' / 'probe' / NULL.
+    call_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     patient = relationship("Patient", back_populates="calls")
     clinician = relationship("Clinician", foreign_keys=[clinician_id])
@@ -61,6 +66,12 @@ class ClinicalExtraction(Base):
         String(30), nullable=False, server_default="extracted"
     )
     extraction_status_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Phase 2.5 Fix 1 (migration d3e5f7a9b2c4): 'full' for normal calls,
+    # 'probe_focused' for probe calls. Dashboard metadata so probe risk_score
+    # renders distinctly from longitudinal risk.
+    scoring_scope: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="full"
+    )
 
     call = relationship("CallRecord", back_populates="extraction")
 

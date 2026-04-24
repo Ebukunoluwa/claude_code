@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 from sqlalchemy import String, Text, DateTime, ForeignKey, Boolean
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from ..database import Base
 
@@ -20,6 +20,10 @@ class ProbeCall(Base):
     soap_note_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     prompt_source: Mapped[str] = mapped_column(String(20), default="llm")  # llm / fallback
     needs_manual_review: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Phase 2.5 Fix 1 (migration d3e5f7a9b2c4): structured list of clinician's
+    # probe questions, populated at POST /probe-calls time from the LLM question
+    # extraction (or fallback). Ingest iterates this list to write probe_answers.
+    questions_list: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

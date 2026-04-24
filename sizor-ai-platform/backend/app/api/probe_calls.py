@@ -253,6 +253,9 @@ async def create_probe_call(
         status="pending",
         prompt_source=prompt_source,
         needs_manual_review=needs_review,
+        # Phase 2.5 Fix 1: store structured questions for the ingest hook
+        # to write one probe_answers row per question. Phase 4 refines.
+        questions_list=questions or [],
     )
     db.add(pc)
     await db.commit()

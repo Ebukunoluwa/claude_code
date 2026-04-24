@@ -2,13 +2,207 @@
 
 **Scope:** `sizor-ai-platform/backend/` only.
 
-**Current phase:** **Phase 2** — consolidation. Phase 1 (data integrity) is complete and applied to dev; its record is archived at the bottom of this document.
+**Current phase:** **Phase 2.5** — trajectory integrity. Phase 2 (consolidation + models + scoring refactor + validation) merged to `main` at `43dfd94`. Orphan-drop (`c2e4a6f801b3`) pushed on a separate branch, PR pending. Phase 1 (data integrity) is applied to dev; its record is archived at the bottom of this document.
 
-**Gate:** no code until this plan is approved. Same pattern as Phase 1.
+**Gate:** no code until the Phase 2.5 additions below are approved. Same pattern as Phase 1 and Phase 2.
 
 ---
 
-## Pre-work answers (questions you told me to ask, not guess at)
+## Phase 2.5 — Trajectory integrity (scope add)
+
+**Branch:** `phase-2-5-trajectory-integrity`
+**Base:** `main` at `43dfd94` (Phase 2 merge commit).
+**Motivation:** three fixes surfaced by the Phase 2 `CALL_HANDLING_AUDIT.md`. All three are about keeping the longitudinal trajectory signal honest when the pipeline sees calls that shouldn't contribute (probes), priors that shouldn't be trusted (`failed` / `empty` extraction_status), or same-day noise (retry / continuation / runaway-scheduler clusters).
+
+**Non-goals (explicit):**
+- Continuation de-dup (latent, not firing in dev).
+- `call_type` enum constraint at DB level (cosmetic — separate cleanup PR).
+- Read-time dedup cleanup in `patients.py` (no-op post-Phase 1).
+- Coverage Option A vs B (Phase 4 decision).
+- `"outbound"` / `"follow-up"` drift in `call_schedule.call_type` (frontend ticket).
+- Full transcript-to-ProbeAnswer extraction (Phase 4 scope).
+
+### Pre-work answers (Q1 / Q2 / Q3)
+
+**Q1 — Should probe calls' own risk_score still be computed?**
+
+**Yes, but FOCUSED** over only the domains the probe asked about, not a full-domain score. Corrected per your review. The rule is two-part:
+
+**Read / write asymmetry (unchanged):** probes **read** the trajectory but don't **write** to it.
+
+- When scoring a probe call: load priors from the chain of non-probe extractions (retry / continuation / routine). Compute EWMA seeded by that chain's most recent smoothed state.
+- When scoring any subsequent call (probe or not): the probe's row is **invisible** as a prior — the "load most recent prior" query filters it out. The chain stays unbroken through the probe.
+
+**Focused computation (new):** the probe's `risk_score` is computed only over the domains the probe actually asked about. A probe asking only about chest pain on an otherwise stable patient must not score `risk=12` because mood/mobility/appetite were silent — it must produce a score that reflects the chest pain severity in isolation.
+
+Mechanics:
+- `ClinicalExtraction` gains a new column `scoring_scope: VARCHAR(20) NOT NULL DEFAULT 'full'`, enum-like with values `'full'` / `'probe_focused'`. The pipeline sets it per-call: `'probe_focused'` when `CallRecord.trigger_type == 'probe'`, else `'full'`.
+- `compute_risk_score` gains a `scoring_scope` keyword argument.
+  - `'full'`: existing behaviour — all five components (worst_symptom, mood, ftp, modifier, day_factor) weighted at their fixed weights (0.55 / 0.15 / 0.15 / 0.10 / 0.05).
+  - `'probe_focused'`: only symptom-observation components (worst_symptom + mood) participate, weights **renormalised over components present**. Missing domains are EXCLUDED from the calculation, not treated as zero. `ftp`, `modifier`, and `day_factor` are skipped entirely — they are longitudinal-context features that the probe did not ask about.
+  - Safety floors (red_flag_floor at 70, acute_symptom_floor at 65) still apply in both modes.
+- Worked example: probe asks about pain, smoothed pain=7 → `worst_symptom = ~80`. In focused mode with only `worst_symptom` present, weights renormalise so `final_score ≈ 80`. In full mode with everything else absent/zero, `final_score = 0.55 × 80 = 44` — which under-represents the signal and is wrong for a probe.
+- Dashboard rendering of the distinction (separate label, colour, etc.) is **out of Phase 2.5 scope** — the data model now carries enough metadata (`scoring_scope`) for the frontend to render it distinctly when the frontend team picks it up.
+
+**Domain-source question (scoped for Phase 2.5):** the user's spec names `ProbeCall.questions_list` as the source of "which domains the probe asked about". Phase 2.5 uses a pragmatic proxy instead: whichever of the five scalar score fields (`pain_score`, `breathlessness_score`, `mobility_score`, `appetite_score`, `mood_score`) are non-None on the `ClinicalExtraction` are the "asked" domains. The LLM extraction pipeline populates these only for domains with transcript evidence, so this lines up with what the probe actually covered. An explicit `ProbeCall.focused_domains: list[str]` field keyed to questions_list tags is deferred to Phase 4, when the frontend UI can populate it at probe creation time. Flagged: LLM hallucination producing a false positive score on an un-asked domain would not be filtered by this Phase 2.5 proxy; Phase 4's explicit tagging closes that gap.
+
+**Q2 — Timezone for same-day FTP collapse.**
+
+**Europe/London.** Flagged as a platform-wide implicit assumption that should become an explicit `Patient.timezone` or `Hospital.timezone` field in a later phase. Rationale: NHS product, UK patients, BST/GMT is the clinical day boundary clinicians actually think in. The audit's own same-day grouping used `DATE(started_at)` which is UTC — this Phase 2.5 fix switches to `DATE(started_at AT TIME ZONE 'Europe/London')`.
+
+Edge cases:
+- A 23:50 UTC call in summer is 00:50 the following day in London time (BST offset). The FTP collapse groups it with the next day, not the preceding day.
+- A cluster straddling midnight London-time (e.g. cut-off at 23:50 London, continuation at 00:05 London) is correctly counted as two separate clinical days under this rule. The continuation rule's 5-minute scheduling doesn't respect day boundaries, so this edge does occur.
+
+**Q3 — Backfill window for `CallRecord.started_at` ↔ `CallSchedule.scheduled_for`.**
+
+**±15 minutes.** Defense:
+
+- `fire_scheduled_call` runs at ETA; Celery delivers within seconds in a healthy system. Queue backlog under load stretches this to minutes, not tens of minutes.
+- The two known deliberate delay patterns are the 2h retry and the 5min continuation, both of which produce a CallSchedule at the new ETA — there's no legitimate reason the CallRecord would fire far from its matching schedule's `scheduled_for`.
+- Tighter windows (e.g. ±2min) risk excluding legitimate matches during queue backlog.
+- Wider windows (e.g. ±60min) risk matching a call to the wrong schedule when two schedules exist for the same patient within the same hour (possible under the retry path).
+
+**Tie-breaking and edge cases:**
+- Multiple `CallSchedule` rows within ±15min for the same patient: pick the closest by absolute time delta. Log the ambiguity.
+- No `CallSchedule` within ±15min: leave `CallRecord.call_type` NULL. Log the unmatched row. Report aggregate unmatched count at migration end.
+- `probe_call_id IS NOT NULL` or `trigger_type = 'probe'`: set `call_type = 'probe'` directly without needing a CallSchedule match. Probes bypass CallSchedule by design (fired via `fire_probe_call` from the `ProbeCall` table).
+
+### Scope — three fixes
+
+#### Fix 1 — Probe isolation (trajectory + focused scoring + probe_answers scaffolding)
+
+**Exclusions (the core fix):**
+- EWMA prior loader (`pipeline_tasks.py:303-316`): add `JOIN call_records cr ON cr.call_id = ClinicalExtraction.call_id WHERE cr.trigger_type != 'probe'` to the most-recent-prior query.
+- Domain-score carry-forward loader (`pipeline_tasks.py:119-131`): same filter.
+- FTP detector input (when Fix 2 collapses same-day): exclude probe rows before counting.
+
+**Probe's own scoring stays live, but focused:**
+- `ClinicalExtraction.scoring_scope` column added (`VARCHAR(20) NOT NULL DEFAULT 'full'`). Values: `'full'` / `'probe_focused'`.
+- Pipeline sets `scoring_scope='probe_focused'` when `CallRecord.trigger_type == 'probe'`, else `'full'`.
+- `compute_risk_score(smoothed, *, scoring_scope='full', ...)` signature gains the flag. Focused mode: only worst_symptom + mood participate, weights renormalised over components whose smoothed value is not None. Missing domains EXCLUDED, not treated as zero. `ftp`, `modifier`, `day_factor` skipped entirely in focused mode (they're longitudinal-context features the probe didn't ask about). Safety floors (red_flag, acute_symptom) still apply in both modes.
+- Carry-forward interaction: even though the probe reads the non-probe chain's domain-score carry-forward as its prior, the focused mode only scores on domains where the probe itself produced a signal (via the scalar-column non-None proxy). This avoids a carried-forward pain from a previous routine showing up in a mood-only probe's focused score.
+
+**New `probe_answers` table** (scaffolding only — transcript extraction is Phase 4):
+
+```
+probe_answers
+  probe_answer_id       UUID PK
+  probe_call_id         UUID FK -> probe_calls.probe_call_id, NOT NULL
+  prompt_question       TEXT NOT NULL
+  patient_answer        TEXT NULL                  (populated in Phase 4)
+  confidence            VARCHAR(10) NULL           (enum: high/medium/low, Phase 4)
+  asked_at              TIMESTAMPTZ NULL           (when in the transcript; Phase 4)
+  extraction_status     VARCHAR(20) NOT NULL DEFAULT 'pending'
+                        (enum: pending / extracted / failed)
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+```
+
+Plus one new JSONB column on `ProbeCall`: `questions_list: list[str]`. Populated at `POST /probe-calls` time from the clinician's input (naive newline-split for Phase 2.5; Phase 4 refines with LLM parsing).
+
+**At call ingest (when `probe_call_id` is set):**
+- Load the ProbeCall, read `questions_list`.
+- Write one `probe_answers` row per question with `prompt_question=<question>`, `extraction_status='pending'`, everything else null.
+- Proceed with normal ingest (creates CallRecord, queues `process_call`).
+
+**Tests (in `tests/test_probe_isolation.py` and `tests/test_focused_risk_score.py`):**
+1. Two routine calls with a probe between them: EWMA state after the second routine is identical whether the probe existed or not. Byte-for-byte identical on `smoothed_scores`.
+2. Probe's own `risk_score` is computed and persisted (not null), with `scoring_scope='probe_focused'`.
+3. Domain carry-forward skips probes — a routine call after a probe loads the pre-probe routine's domain scores, not the probe's.
+4. `probe_answers` rows created at ingest match the count of questions in `ProbeCall.questions_list`.
+5. All `probe_answers` rows at ingest time have `extraction_status='pending'` and nulls elsewhere.
+6. **Focused scoring — pain only**: probe with smoothed pain=7, all others None → `final_score ≈ 80`, dominant_driver='worst_symptom', `scoring_scope='probe_focused'` persisted on the row.
+7. **Focused scoring — pain + mood**: probe with smoothed pain=7 and mood=3 → final ≈ `(0.55·80 + 0.15·70) / (0.55+0.15) ≈ 78`.
+8. **Focused scoring — no data**: probe with all five scalars None → `final_score=0.0`, no acute-symptom floor fires.
+9. **Safety floors still apply in focused mode**: probe with `has_active_red_flag=True` → `final_score ≥ 70` even if symptom signal is low; probe with `raw_pain=9` → `final_score ≥ 65`.
+10. **Full-mode regression**: identical inputs between old (implicit `full`) and new (`scoring_scope='full'`) produce identical `RiskScoreBreakdown` — the existing 18 tests in `test_risk_score.py` stay green.
+
+#### Fix 2 — Bad-prior guard + same-day FTP collapse
+
+**Bad-prior guard (EWMA + carry-forward):**
+
+Both loaders in `pipeline_tasks.py` change from "most-recent other extraction, limit 1" to "most-recent other extraction with `extraction_status='extracted'`, walk back up to N=5 rows". If none found, fall through to first-call seeding (no prior).
+
+The N=5 cap prevents pathological patients (all 50 extractions failed) from scanning the full history on every call. 5 is a defensible soft floor — it catches one or two bad priors without opening a vector for scan-all-history attacks.
+
+Same filter applies to both the domain-score carry-forward loader and the EWMA prior loader.
+
+**Same-day FTP collapse:**
+
+New helper `_collapse_same_day_observations(patient_id, domain) -> list[dict]` in `clinical_intelligence/ftp_detector.py` (or wherever the Phase 4 re-port lands). For each calendar day (Europe/London) with ≥1 extraction for the patient+domain, produce a single synthetic observation with the day's MAX score. The FTP detector then counts "2+ consecutive calendar days above upper_bound" on this collapsed sequence, not on the raw extraction rows.
+
+Existing `clinical_intelligence/ftp_detector.py` is currently dead code (zero callers — flagged in CALL_HANDLING_AUDIT.md). The Phase 4 re-port gets the collapsed-by-day logic baked in from the start. For Phase 2.5, the collapse helper is added and wired into `pipeline_tasks.py`'s FTP computation (`services/ftp_service::compute_ftp`).
+
+**Tests (in `tests/test_ewma_bad_prior_guard.py` and `tests/test_ftp_same_day_collapse.py`):**
+1. Prior row with `extraction_status='failed'` and populated smoothed_scores → skipped. Prior-2 is used.
+2. All 5 most-recent priors `failed` → current call treated as first-call seeding.
+3. 11 extractions in 90 minutes all with score ≥ upper_bound → FTP does NOT fire (only one calendar day).
+4. Day 1 max=3 (upper=2), day 2 max=3 → FTP fires (2 consecutive calendar days).
+5. Midnight-crossing: extraction at 23:50 BST and 00:05 BST counted as two separate days.
+6. FTP collapse excludes probes (links Fix 1 and Fix 2).
+
+#### Fix 3 — call_type propagation onto CallRecord
+
+**Schema change:**
+
+New Alembic migration: `ALTER TABLE call_records ADD COLUMN call_type VARCHAR(20) NULL`.
+
+Nullable for legacy rows. Future rows get populated at ingest.
+
+**Ingest logic** (`app/api/calls.py::ingest`):
+
+```
+if probe_call_id:
+    call_type = 'probe'
+else:
+    sched = <most-recent dispatched CallSchedule for this patient>
+    call_type = sched.call_type if sched else None
+# CallRecord(call_type=call_type, ...)
+```
+
+Note: this reuses the existing lookup at `calls.py:90-99` that already finds the dispatched CallSchedule to mark it `completed`/`missed`. Small edit — capture the `call_type` at the same time.
+
+**Backfill migration:**
+
+Separate data migration (not a schema migration) — runs in the same Alembic revision as the column add. For each existing CallRecord with `call_type IS NULL`:
+
+1. If `call_records.probe_call_id IS NOT NULL` OR `trigger_type = 'probe'` (cross-reference via a JOIN to `probe_calls`): set `call_type = 'probe'`.
+2. Else: find the CallSchedule for this patient where `ABS(call_schedule.scheduled_for - call_records.started_at) <= INTERVAL '15 minutes'`, ordered by delta ascending. Set `call_type` from the closest match.
+3. Else: leave NULL. Log the unmatched count in the migration output.
+
+Emit the match/unmatched summary as migration log output so the runner can see coverage at upgrade time.
+
+**ORM model update:** `CallRecord.call_type: Mapped[str | None] = mapped_column(String(20), nullable=True)`.
+
+**Tests (in `tests/test_call_type_propagation.py` and updates to the parity test):**
+1. Ingest with `probe_call_id` set → `call_type='probe'` on the new CallRecord.
+2. Ingest matching a `CallSchedule(call_type='retry')` → `call_type='retry'`.
+3. Ingest with no matching CallSchedule and no probe_call_id → `call_type=None`.
+4. Backfill: synthetic CallRecord + CallSchedule at exact same time → matched.
+5. Backfill: synthetic CallRecord 14 minutes off → matched; 16 minutes off → unmatched.
+6. Backfill: two CallSchedules within ±15min → closest wins.
+7. `test_orm_db_schema_parity.py` still passes with the new column declared on both sides.
+
+### Deliverable order
+
+1. **Commit 0 — docs.** This PLAN.md update. No code changes.
+2. **Commit 1 — Fix 1.** Probe exclusion in `pipeline_tasks.py` + new `probe_answers` table + `questions_list` on `ProbeCall` + ingest hook + ORM models + Alembic migration + tests.
+3. **Commit 2 — Fix 2.** Bad-prior guard in EWMA + carry-forward loaders + same-day FTP collapse helper + tests. No schema changes.
+4. **Commit 3 — Fix 3.** `call_type` column on `CallRecord` + ingest-time population + backfill migration + tests.
+
+Tests green between every commit. Stop after Commit 3 — user reviews diffs before merge to main.
+
+### Estimated diff
+
+- Fix 1: ~250 lines (new table + ORM + ingest + ProbeCall column + tests)
+- Fix 2: ~150 lines (two small loader changes + FTP helper + tests)
+- Fix 3: ~200 lines (migration + ingest edit + ORM + tests)
+- PLAN.md addition: ~200 lines (this section)
+- **Total: ~800 lines**, moderate review surface
+
+---
+
+
 
 ### PY1 — Pydantic version
 **Pydantic 2.9.2** (confirmed via `docker compose exec backend python -c 'import pydantic; print(pydantic.VERSION)'`).

@@ -115,16 +115,26 @@ def process_call(call_id: str):
             # domains that weren't touched in this session.
             _prior_domain_scores: dict = {}
             try:
+                # Phase 2.5 Fix 1: exclude probe calls from the longitudinal
+                # domain-score carry-forward. Probes read the chain but don't
+                # update it.
+                # Phase 2.5 Fix 2: only trust 'extracted' priors. A 'failed' or
+                # 'empty' row with stale smoothed_scores must not contaminate
+                # the carry-forward. Walking back 5 rows covers short runs of
+                # bad priors without opening a scan-all-history vector.
                 _prior_ext_for_domains = await db.execute(
                     select(ClinicalExtraction)
+                    .join(CallRecord, CallRecord.call_id == ClinicalExtraction.call_id)
                     .where(
                         ClinicalExtraction.patient_id == call.patient_id,
                         ClinicalExtraction.call_id != call.call_id,
+                        CallRecord.trigger_type != "probe",
+                        ClinicalExtraction.extraction_status == "extracted",
                     )
                     .order_by(ClinicalExtraction.extracted_at.desc())
-                    .limit(1)
+                    .limit(5)
                 )
-                _prior_ext_row = _prior_ext_for_domains.scalar_one_or_none()
+                _prior_ext_row = _prior_ext_for_domains.scalars().first()
                 if _prior_ext_row and _prior_ext_row.condition_specific_flags:
                     _prior_domain_scores = (
                         (_prior_ext_row.condition_specific_flags or {}).get("domain_scores") or {}
@@ -302,18 +312,26 @@ def process_call(call_id: str):
             # to drive EWMA smoothing across calls.
             prior_smoothed: dict | None = None
             try:
+                # Phase 2.5 Fix 1: exclude probe calls from the EWMA chain.
+                # Phase 2.5 Fix 2: only trust 'extracted' priors. Walk back
+                # up to 5 rows — the first one with populated smoothed_scores
+                # wins. Otherwise the current call is seeded as first-call.
                 prior_ext_result = await db.execute(
                     select(ClinicalExtraction)
+                    .join(CallRecord, CallRecord.call_id == ClinicalExtraction.call_id)
                     .where(
                         ClinicalExtraction.patient_id == call.patient_id,
                         ClinicalExtraction.call_id != call.call_id,
+                        CallRecord.trigger_type != "probe",
+                        ClinicalExtraction.extraction_status == "extracted",
                     )
                     .order_by(ClinicalExtraction.extracted_at.desc())
-                    .limit(1)
+                    .limit(5)
                 )
-                prior_ext = prior_ext_result.scalar_one_or_none()
-                if prior_ext and prior_ext.smoothed_scores:
-                    prior_smoothed = prior_ext.smoothed_scores
+                for prior_ext in prior_ext_result.scalars():
+                    if prior_ext.smoothed_scores:
+                        prior_smoothed = prior_ext.smoothed_scores
+                        break
             except Exception as exc:
                 logger.warning(
                     "Could not load prior smoothed state for patient %s: %s",
@@ -367,6 +385,10 @@ def process_call(call_id: str):
                     modifier_detail=smoothed_state.get("modifier_detail", {}),
                     lam=smoothed_state.get("lam", 0.3),
                 )
+                # Phase 2.5 Fix 1: probe calls get focused scoring (only
+                # domains the probe asked about participate). Non-probe
+                # calls keep full-domain scoring.
+                is_probe = call.trigger_type == "probe"
                 breakdown = compute_risk_score(
                     smoothed_obj,
                     ftp_status=ftp_status,
@@ -374,9 +396,11 @@ def process_call(call_id: str):
                     has_active_red_flag=has_red_flag,
                     raw_pain=scores_raw.get("pain_score"),
                     raw_breathlessness=scores_raw.get("breathlessness_score"),
+                    scoring_scope="probe_focused" if is_probe else "full",
                 )
                 extraction.smoothed_scores = smoothed_state
                 extraction.risk_score = breakdown.final_score
+                extraction.scoring_scope = "probe_focused" if is_probe else "full"
                 bd_dict = breakdown_to_dict(breakdown)
                 # Embed domain scores so the frontend WHY panel can display them
                 # even when generic weighted contributions are also present.
