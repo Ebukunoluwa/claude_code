@@ -60,6 +60,25 @@ async def ingest_call_from_voice_agent(
 
     probe_call_id = data.get("probe_call_id")
 
+    # Phase 2.5 Fix 3: determine call_type from probe flag or from the
+    # closest matching pending/dispatched CallSchedule. Computed before
+    # CallRecord construction so it lands on the row at write time.
+    call_type_value: str | None = None
+    if probe_call_id:
+        call_type_value = "probe"
+    else:
+        sched_match = await db.execute(
+            select(CallSchedule).where(
+                CallSchedule.patient_id == patient.patient_id,
+                CallSchedule.status.in_(("dispatched", "pending")),
+            )
+            .order_by(CallSchedule.scheduled_for.desc())
+            .limit(1)
+        )
+        matched_sched = sched_match.scalar_one_or_none()
+        if matched_sched is not None:
+            call_type_value = matched_sched.call_type
+
     # Determine final call status
     # Agent sends: "missed" for unanswered, "cut_off" for calls that ended unexpectedly mid-session
     transcript = data.get("transcript", "")
@@ -81,6 +100,7 @@ async def ingest_call_from_voice_agent(
         transcript_raw=transcript,
         call_sid=data.get("call_sid"),
         probe_instructions=data.get("probe_instructions"),
+        call_type=call_type_value,
     )
     db.add(call)
     await db.flush()
