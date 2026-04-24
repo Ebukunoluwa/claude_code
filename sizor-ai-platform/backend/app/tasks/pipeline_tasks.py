@@ -23,7 +23,7 @@ from ..services.post_call_pipeline import (
     evaluate_flags, generate_longitudinal_summary,
 )
 from ..services.ftp_service import compute_ftp
-from ..clinical.risk_score import compute_risk_score, breakdown_to_dict
+from ..clinical_intelligence.risk_score import compute_risk_score, breakdown_to_dict
 
 
 def _get_session():

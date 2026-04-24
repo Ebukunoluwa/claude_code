@@ -9,7 +9,7 @@ These are the scenarios that matter for correcting the fake-hash problem:
   - Every component is in the breakdown (defensibility)
 """
 from app.clinical_intelligence.smoothing import smooth_extraction, SmoothedScores
-from app.clinical.risk_score import (
+from app.clinical_intelligence.risk_score import (
     compute_risk_score,
     breakdown_to_dict,
     RED_FLAG_MIN_FLOOR,
