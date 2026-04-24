@@ -745,21 +745,343 @@ K40_CABG_RED_FLAG_PROBES: dict[str, RedFlagProbe] = {
 }
 
 
+# ═══════════════════════════════════════════════════════════════════════
+# K57 — Atrial Fibrillation
+# Patient-facing wording audit: 2026-04-24 (new content, audited at draft)
+# ═══════════════════════════════════════════════════════════════════════
+#
+# Key divergences:
+#   - AF-specific anticoagulation is typically a DOAC (apixaban,
+#     rivaroxaban, edoxaban, dabigatran). First-use RQ gloss of "DOAC"
+#     uses plain language ("blood-thinning tablet, like apixaban or
+#     rivaroxaban"). Bare "anticoagulant" / "DOAC" avoided in probes.
+#   - Stroke signs (FAST: Face, Arm, Speech, Time) split into 3
+#     separate probes — each is a single observation, all 999.
+#   - Haemorrhage from anticoagulation splits into four probes by
+#     severity and site:
+#     - nosebleed lasting 10+ minutes → SAME_DAY
+#     - blood in urine or stool → SAME_DAY
+#     - unusual bruising → SAME_DAY
+#     - major bleeding event (vomiting blood / uncontrolled bleed /
+#       visible large blood loss) → EMERGENCY_999
+
+K57_PLAYBOOK = PathwayPlaybook(
+    opcs_code="K57",
+    label="Atrial Fibrillation",
+    category="medical",
+    nice_ids=["NG196", "QS93", "TA249"],
+    monitoring_window_days=60,
+    call_days=[1, 3, 7, 14, 21, 28, 42, 60],
+    domains=[
+        "rate_control_monitoring",
+        "anticoagulation_adherence",
+        "symptom_monitoring",
+        "bleeding_signs",
+        "mood_and_anxiety",
+    ],
+    red_flag_codes=[
+        "palpitations_severe",
+        "stroke_signs",
+        "haemorrhage",
+        "syncope",
+        "breathlessness_acute",
+    ],
+    validation_status=_DRAFT,
+)
+
+
+K57_TRAJECTORIES: list[DomainTrajectoryEntry] = [
+    # rate_control_monitoring — NG196 §1.6 (target <110bpm at rest)
+    _traj("K57", "rate_control_monitoring",  1, 1, 2, "Rate control assessment — target <110bpm at rest", "NG196"),
+    _traj("K57", "rate_control_monitoring",  3, 1, 1, "Rate controlled", "NG196"),
+    _traj("K57", "rate_control_monitoring",  7, 1, 1, "Rate controlled", "NG196"),
+    _traj("K57", "rate_control_monitoring", 14, 1, 1, "Stable rate control", "NG196"),
+    _traj("K57", "rate_control_monitoring", 21, 1, 1, "Stable", "NG196"),
+    _traj("K57", "rate_control_monitoring", 28, 1, 1, "Stable", "NG196"),
+    _traj("K57", "rate_control_monitoring", 42, 1, 1, "Stable", "NG196"),
+    _traj("K57", "rate_control_monitoring", 60, 1, 1, "Stable", "NG196"),
+
+    # anticoagulation_adherence — NG196 §1.5 (lifelong if CHA2DS2-VASc ≥2)
+    _traj("K57", "anticoagulation_adherence",  1, 1, 1, "Anticoagulant commenced", "NG196"),
+    _traj("K57", "anticoagulation_adherence",  3, 1, 1, "Adherent", "NG196"),
+    _traj("K57", "anticoagulation_adherence",  7, 1, 1, "Adherent", "NG196"),
+    _traj("K57", "anticoagulation_adherence", 14, 1, 1, "Adherent", "NG196"),
+    _traj("K57", "anticoagulation_adherence", 21, 1, 1, "Adherent — lifelong if CHA2DS2-VASc ≥2", "NG196"),
+    _traj("K57", "anticoagulation_adherence", 28, 1, 1, "Adherent", "NG196"),
+    _traj("K57", "anticoagulation_adherence", 42, 1, 1, "Adherent", "NG196"),
+    _traj("K57", "anticoagulation_adherence", 60, 1, 1, "Adherent — lifelong", "NG196"),
+
+    # symptom_monitoring — NG196 §1.6
+    _traj("K57", "symptom_monitoring",  1, 1, 2, "Palpitations/breathlessness may persist", "NG196"),
+    _traj("K57", "symptom_monitoring",  3, 1, 1, "Symptoms settling with rate control", "NG196"),
+    _traj("K57", "symptom_monitoring",  7, 1, 1, "Symptoms settled", "NG196"),
+    _traj("K57", "symptom_monitoring", 14, 1, 1, "Stable", "NG196"),
+    _traj("K57", "symptom_monitoring", 21, 1, 1, "Stable", "NG196"),
+    _traj("K57", "symptom_monitoring", 28, 1, 1, "Stable", "NG196"),
+    _traj("K57", "symptom_monitoring", 42, 1, 1, "Stable", "NG196"),
+    _traj("K57", "symptom_monitoring", 60, 1, 1, "Stable", "NG196"),
+
+    # bleeding_signs — NG196 §1.5 (DOAC-related bleeding surveillance)
+    _traj("K57", "bleeding_signs",  1, 1, 1, "Monitor for anticoagulant-related bleeding", "NG196"),
+    _traj("K57", "bleeding_signs",  3, 1, 1, "No bleeding expected", "NG196"),
+    _traj("K57", "bleeding_signs",  7, 1, 1, "No bleeding expected", "NG196"),
+    _traj("K57", "bleeding_signs", 14, 1, 1, "No bleeding expected", "NG196"),
+    _traj("K57", "bleeding_signs", 21, 1, 1, "No bleeding expected", "NG196"),
+    _traj("K57", "bleeding_signs", 28, 1, 1, "No bleeding expected", "NG196"),
+    _traj("K57", "bleeding_signs", 42, 1, 1, "No bleeding expected", "NG196"),
+    _traj("K57", "bleeding_signs", 60, 1, 1, "Monitoring ongoing", "NG196"),
+
+    # mood_and_anxiety — NG196 §1.7
+    _traj("K57", "mood_and_anxiety",  1, 1, 2, "Anxiety with AF diagnosis common", "NG196"),
+    _traj("K57", "mood_and_anxiety",  3, 1, 2, "Monitor for anxiety", "NG196"),
+    _traj("K57", "mood_and_anxiety",  7, 1, 1, "Mood settling", "NG196"),
+    _traj("K57", "mood_and_anxiety", 14, 1, 1, "Stable mood", "NG196"),
+    _traj("K57", "mood_and_anxiety", 21, 1, 1, "Stable", "NG196"),
+    _traj("K57", "mood_and_anxiety", 28, 1, 1, "Stable", "NG196"),
+    _traj("K57", "mood_and_anxiety", 42, 1, 1, "Stable", "NG196"),
+    _traj("K57", "mood_and_anxiety", 60, 0, 1, "Near-baseline", "NG196"),
+]
+
+
+K57_REQUIRED_QUESTIONS: list[RequiredQuestion] = [
+    # First-use gloss for "palpitations" on the symptom_monitoring RQ
+    # (asked earlier in the call than rate_control), plus plain
+    # "heartbeat" in rate_control_monitoring for naturalness.
+    _rq(
+        "K57",
+        "rate_control_monitoring",
+        "How's your heartbeat feeling day-to-day — slower and more regular, or still fluttering or racing at times?",
+        [(1, 3), (4, 7), (8, 14), (15, 28), (29, 60)],
+        "NG196 §1.6",
+    ),
+    # First-use inline gloss for "DOAC" as plain tablet description.
+    _rq(
+        "K57",
+        "anticoagulation_adherence",
+        "Are you taking the blood-thinning tablets — a DOAC, like apixaban or rivaroxaban — each day, and have you missed any doses?",
+        [(1, 3), (4, 7), (8, 14), (15, 28), (29, 60)],
+        "NG196 §1.5",
+    ),
+    # First-use gloss for "palpitations" on symptom_monitoring.
+    _rq(
+        "K57",
+        "symptom_monitoring",
+        "Any new dizziness, breathlessness, chest discomfort, or sudden fluttering or racing heartbeat — palpitations — in the last 24 hours?",
+        [(1, 3), (4, 7), (8, 14), (15, 28)],
+        "NG196 §1.6",
+    ),
+    _rq(
+        "K57",
+        "bleeding_signs",
+        "Any unusual bruising, nosebleeds, blood when you pee or in your poo, or gums bleeding when you brush your teeth?",
+        [(1, 3), (4, 7), (8, 14), (15, 28), (29, 60)],
+        "NG196 §1.5",
+    ),
+    _rq(
+        "K57",
+        "mood_and_anxiety",
+        "How's your mood and any worry about the diagnosis — keeping up with daily things, sleeping OK?",
+        [(4, 7), (8, 14), (15, 28), (29, 60)],
+        "NG196 §1.7",
+    ),
+]
+
+
+# ─── K57 Red Flag Probes ───────────────────────────────────────────────
+
+K57_RED_FLAG_PROBES: dict[str, RedFlagProbe] = {
+
+    # ══ palpitations_severe — 2 probes (same pattern as K40) ═══════════
+    "palpitations_sustained": RedFlagProbe(
+        flag_code="palpitations_sustained",
+        parent_flag_code="palpitations_severe",
+        category=RedFlagCategory.PATHWAY_SPECIFIC,
+        nice_basis="NG196 §1.6",
+        patient_facing_question=(
+            "Have you had any sudden fluttering or racing heartbeat — "
+            "palpitations — that lasted more than about half an hour, or "
+            "that kept coming back today?"
+        ),
+        follow_up_escalation=EscalationTier.SAME_DAY,
+        validation_status=_DRAFT,
+    ),
+    "palpitations_with_red_flag_symptoms": RedFlagProbe(
+        flag_code="palpitations_with_red_flag_symptoms",
+        parent_flag_code="palpitations_severe",
+        category=RedFlagCategory.PATHWAY_SPECIFIC,
+        nice_basis="NG196 §1.6",
+        patient_facing_question=(
+            "When the fluttering or racing happened, did you also get "
+            "chest pain, breathlessness, or feel like you might pass out?"
+        ),
+        follow_up_escalation=EscalationTier.EMERGENCY_999,
+        validation_status=_DRAFT,
+    ),
+
+    # ══ stroke_signs — 3 FAST probes (all 999) ═════════════════════════
+    # Face / Arm / Speech split. Each is a single observation. Time is
+    # captured implicitly by the call timing. Coverage-check framing
+    # for face/speech where the patient may not notice their own deficit
+    # — asks whether anyone near them has commented.
+    "stroke_signs_face_drooping": RedFlagProbe(
+        flag_code="stroke_signs_face_drooping",
+        parent_flag_code="stroke_signs",
+        category=RedFlagCategory.NEW_FOCAL_NEURO,
+        nice_basis="NG128 / NG196",
+        patient_facing_question=(
+            "Has anyone noticed one side of your face looking droopy or "
+            "uneven today — like one corner of your mouth not moving the "
+            "same as the other?"
+        ),
+        follow_up_escalation=EscalationTier.EMERGENCY_999,
+        validation_status=_DRAFT,
+    ),
+    "stroke_signs_arm_weakness": RedFlagProbe(
+        flag_code="stroke_signs_arm_weakness",
+        parent_flag_code="stroke_signs",
+        category=RedFlagCategory.NEW_FOCAL_NEURO,
+        nice_basis="NG128 / NG196",
+        patient_facing_question=(
+            "If you hold both arms out straight in front of you right now, "
+            "does one drop down or feel weaker than the other?"
+        ),
+        follow_up_escalation=EscalationTier.EMERGENCY_999,
+        validation_status=_DRAFT,
+    ),
+    "stroke_signs_speech_difficulty": RedFlagProbe(
+        flag_code="stroke_signs_speech_difficulty",
+        parent_flag_code="stroke_signs",
+        category=RedFlagCategory.NEW_FOCAL_NEURO,
+        nice_basis="NG128 / NG196",
+        patient_facing_question=(
+            "Has your speech been slurred or harder to get out today, or "
+            "has anyone said they're having trouble understanding you?"
+        ),
+        follow_up_escalation=EscalationTier.EMERGENCY_999,
+        validation_status=_DRAFT,
+    ),
+
+    # ══ haemorrhage — 4 probes by severity and site ═══════════════════
+    # DOAC-associated bleeding. Three SAME_DAY probes for minor/moderate
+    # bleeding sites; one EMERGENCY_999 for major events. Concrete
+    # anchors throughout (10-minute bleed duration, visible blood loss).
+    "haemorrhage_prolonged_nosebleed": RedFlagProbe(
+        flag_code="haemorrhage_prolonged_nosebleed",
+        parent_flag_code="haemorrhage",
+        category=RedFlagCategory.HAEMORRHAGE,
+        nice_basis="NG196 §1.5",
+        patient_facing_question=(
+            "Have you had any nosebleeds that didn't stop after 10 minutes "
+            "of pinching the nose, in the last 24 hours?"
+        ),
+        follow_up_escalation=EscalationTier.SAME_DAY,
+        validation_status=_DRAFT,
+    ),
+    "haemorrhage_blood_in_urine_or_stool": RedFlagProbe(
+        flag_code="haemorrhage_blood_in_urine_or_stool",
+        parent_flag_code="haemorrhage",
+        category=RedFlagCategory.HAEMORRHAGE,
+        nice_basis="NG196 §1.5",
+        patient_facing_question=(
+            "Any blood when you pee, or dark or bright blood in your poo, "
+            "in the last 24 hours?"
+        ),
+        follow_up_escalation=EscalationTier.SAME_DAY,
+        validation_status=_DRAFT,
+    ),
+    "haemorrhage_unusual_bruising": RedFlagProbe(
+        flag_code="haemorrhage_unusual_bruising",
+        parent_flag_code="haemorrhage",
+        category=RedFlagCategory.HAEMORRHAGE,
+        nice_basis="NG196 §1.5",
+        patient_facing_question=(
+            "Any large bruises that have appeared without a bump or knock, "
+            "or bruises that are bigger than the palm of your hand?"
+        ),
+        follow_up_escalation=EscalationTier.SAME_DAY,
+        validation_status=_DRAFT,
+    ),
+    "haemorrhage_major_bleed": RedFlagProbe(
+        flag_code="haemorrhage_major_bleed",
+        parent_flag_code="haemorrhage",
+        category=RedFlagCategory.HAEMORRHAGE,
+        nice_basis="NG196 §1.5",
+        patient_facing_question=(
+            "Have you vomited blood, coughed up blood, or had bleeding "
+            "that you couldn't stop — from any part of your body — today?"
+        ),
+        follow_up_escalation=EscalationTier.EMERGENCY_999,
+        validation_status=_DRAFT,
+    ),
+
+    # ══ syncope — 2 probes (same pattern as K40) ═══════════════════════
+    "syncope_blackout": RedFlagProbe(
+        flag_code="syncope_blackout",
+        parent_flag_code="syncope",
+        category=RedFlagCategory.PATHWAY_SPECIFIC,
+        nice_basis="NG196",
+        patient_facing_question=(
+            "Have you actually blacked out or fainted — lost consciousness "
+            "even for a few seconds — in the last 24 hours?"
+        ),
+        follow_up_escalation=EscalationTier.EMERGENCY_999,
+        validation_status=_DRAFT,
+    ),
+    "syncope_near_miss": RedFlagProbe(
+        flag_code="syncope_near_miss",
+        parent_flag_code="syncope",
+        category=RedFlagCategory.PATHWAY_SPECIFIC,
+        nice_basis="NG196",
+        patient_facing_question=(
+            "Have you felt like you were about to pass out — needing to "
+            "sit or lie down quickly — but didn't actually faint?"
+        ),
+        follow_up_escalation=EscalationTier.SAME_DAY,
+        validation_status=_DRAFT,
+    ),
+
+    # ══ breathlessness_acute — 1 probe ═════════════════════════════════
+    "breathlessness_acute": RedFlagProbe(
+        flag_code="breathlessness_acute",
+        parent_flag_code="breathlessness_acute",
+        category=RedFlagCategory.ACUTE_SOB,
+        nice_basis="NG196",
+        patient_facing_question=(
+            "Have you had sudden severe breathlessness today — needing to "
+            "work hard to breathe even while sitting still?"
+        ),
+        follow_up_escalation=EscalationTier.EMERGENCY_999,
+        validation_status=_DRAFT,
+    ),
+
+    # CLINICAL_REVIEW_NEEDED: stroke_signs probes use coverage-check
+    # framing for face-drooping and speech-difficulty because the
+    # patient often cannot self-detect these deficits. Arm-weakness
+    # probe asks the patient to do a live check (both arms out). Is
+    # this active-participation probe safe via voice-agent phrasing,
+    # or does it require a different conversational handoff?
+}
+
+
 # ─── Module-level registries ───────────────────────────────────────────
 
 PATHWAYS: dict[str, PathwayPlaybook] = {
     "K40": K40_PLAYBOOK,
     "K40_CABG": K40_CABG_PLAYBOOK,
+    "K57": K57_PLAYBOOK,
 }
 TRAJECTORIES: dict[str, list[DomainTrajectoryEntry]] = {
     "K40": K40_TRAJECTORIES,
     "K40_CABG": K40_CABG_TRAJECTORIES,
+    "K57": K57_TRAJECTORIES,
 }
 REQUIRED_QUESTIONS: dict[str, list[RequiredQuestion]] = {
     "K40": K40_REQUIRED_QUESTIONS,
     "K40_CABG": K40_CABG_REQUIRED_QUESTIONS,
+    "K57": K57_REQUIRED_QUESTIONS,
 }
 RED_FLAG_PROBES: dict[str, dict[str, RedFlagProbe]] = {
     "K40": K40_RED_FLAG_PROBES,
     "K40_CABG": K40_CABG_RED_FLAG_PROBES,
+    "K57": K57_RED_FLAG_PROBES,
 }
