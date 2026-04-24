@@ -780,21 +780,383 @@ W37_RED_FLAG_PROBES: dict[str, RedFlagProbe] = {
 }
 
 
+# ═══════════════════════════════════════════════════════════════════════
+# W38 — Hip Fracture / Hemiarthroplasty
+# ═══════════════════════════════════════════════════════════════════════
+#
+# Divergences from W37/W40 worth flagging for the reviewer:
+#   - W38 is shared-care: orthopaedic surgeon + geriatrician. Cohort is
+#     elderly and frail, often on baseline anticoagulants and living
+#     with cognitive impairment. Probe wording leans on coverage-check
+#     phrasings (ask about third-party observation) where the patient
+#     themselves may not reliably notice the change.
+#   - delirium_cognitive_screen is a W38/W37-W40-absent domain.
+#     Patient-facing questions use carer-observed framing rather than
+#     asking the patient to self-assess cognition.
+#   - falls_risk is also new vs W37/W40. The corresponding red flag
+#     (falls_with_injury) splits into three probes: fall with new pain,
+#     fall with head strike (EMERGENCY_999 given anticoagulation risk),
+#     and post-fall inability to bear weight (EMERGENCY_999 — suggests
+#     refracture or implant failure).
+#   - wound_infection parent code (not wound_dehiscence as in W37/W40)
+#     per the upstream pathway_map. Probes split into spreading-redness
+#     and discharge.
+#   - VTE 28-day course (same as W37, longer than W40). RQ injection
+#     question extends into day 15-28 band.
+
+W38_PLAYBOOK = PathwayPlaybook(
+    opcs_code="W38",
+    label="Hip Fracture / Hemiarthroplasty",
+    category="surgical",
+    nice_ids=["NG124", "NG226", "QS16", "QS89"],
+    monitoring_window_days=60,
+    call_days=[1, 3, 7, 14, 21, 28, 42, 60],
+    domains=[
+        "wound_healing",
+        "pain_management",
+        "delirium_cognitive_screen",
+        "falls_risk",
+        "vte_prophylaxis",
+        "mobility_and_rehabilitation",
+    ],
+    red_flag_codes=[
+        "delirium_acute",
+        "dvt_symptoms",
+        "pe_symptoms",
+        "wound_infection",
+        "falls_with_injury",
+    ],
+    validation_status=_DRAFT,
+)
+
+
+W38_TRAJECTORIES: list[DomainTrajectoryEntry] = [
+    # wound_healing — NG124 §1.8
+    _traj("W38", "wound_healing",  1, 2, 3, "Wound intact", "NG124"),
+    _traj("W38", "wound_healing",  3, 2, 3, "Minor seepage acceptable", "NG124"),
+    _traj("W38", "wound_healing",  7, 1, 2, "Wound healing", "NG124"),
+    _traj("W38", "wound_healing", 14, 1, 2, "Healing well", "NG124"),
+    _traj("W38", "wound_healing", 21, 1, 1, "Well healed", "NG124"),
+    _traj("W38", "wound_healing", 28, 0, 1, "Healed", "NG124"),
+    _traj("W38", "wound_healing", 42, 0, 1, "Healed", "NG124"),
+    _traj("W38", "wound_healing", 60, 0, 0, "Fully healed", "NG124"),
+
+    # pain_management — NG124 §1.7
+    _traj("W38", "pain_management",  1, 2, 3, "Moderate pain expected", "NG124"),
+    _traj("W38", "pain_management",  3, 2, 3, "Analgesia being managed", "NG124"),
+    _traj("W38", "pain_management",  7, 2, 2, "Mild-moderate pain", "NG124"),
+    _traj("W38", "pain_management", 14, 1, 2, "Reducing pain", "NG124"),
+    _traj("W38", "pain_management", 21, 1, 2, "Mild pain", "NG124"),
+    _traj("W38", "pain_management", 28, 1, 1, "Minimal pain", "NG124"),
+    _traj("W38", "pain_management", 42, 0, 1, "Resolving", "NG124"),
+    _traj("W38", "pain_management", 60, 0, 1, "Resolved or minimal", "NG124"),
+
+    # delirium_cognitive_screen — NG124 §1.6 (screen for post-op delirium)
+    _traj("W38", "delirium_cognitive_screen",  1, 2, 3, "Screen for delirium — high risk elderly", "NG124"),
+    _traj("W38", "delirium_cognitive_screen",  3, 2, 3, "Monitor for confusion/disorientation", "NG124"),
+    _traj("W38", "delirium_cognitive_screen",  7, 1, 2, "Should be resolving if present", "NG124"),
+    _traj("W38", "delirium_cognitive_screen", 14, 1, 1, "Cognitive function expected to normalise", "NG124"),
+    _traj("W38", "delirium_cognitive_screen", 21, 0, 1, "No delirium expected", "NG124"),
+    _traj("W38", "delirium_cognitive_screen", 28, 0, 1, "No delirium expected", "NG124"),
+    _traj("W38", "delirium_cognitive_screen", 42, 0, 0, "Resolved", "NG124"),
+    _traj("W38", "delirium_cognitive_screen", 60, 0, 0, "Resolved", "NG124"),
+
+    # falls_risk — QS16 (falls in older people)
+    _traj("W38", "falls_risk",  1, 2, 3, "High falls risk post-op", "QS16"),
+    _traj("W38", "falls_risk",  3, 2, 3, "Still high risk", "QS16"),
+    _traj("W38", "falls_risk",  7, 2, 2, "Ongoing high risk", "QS16"),
+    _traj("W38", "falls_risk", 14, 1, 2, "Reducing with rehab", "QS16"),
+    _traj("W38", "falls_risk", 21, 1, 2, "Improving stability", "QS16"),
+    _traj("W38", "falls_risk", 28, 1, 1, "Managed falls risk", "QS16"),
+    _traj("W38", "falls_risk", 42, 1, 1, "Ongoing monitoring", "QS16"),
+    _traj("W38", "falls_risk", 60, 0, 1, "Near-baseline", "QS16"),
+
+    # vte_prophylaxis — NG89 §1.9
+    _traj("W38", "vte_prophylaxis",  1, 1, 2, "Anticoagulant commenced", "NG89"),
+    _traj("W38", "vte_prophylaxis",  3, 1, 2, "Adherent", "NG89"),
+    _traj("W38", "vte_prophylaxis",  7, 1, 2, "Adherent", "NG89"),
+    _traj("W38", "vte_prophylaxis", 14, 1, 2, "Adherent", "NG89"),
+    _traj("W38", "vte_prophylaxis", 21, 1, 2, "Adherent", "NG89"),
+    _traj("W38", "vte_prophylaxis", 28, 1, 1, "Course completed", "NG89"),
+    _traj("W38", "vte_prophylaxis", 42, 0, 1, "Completed", "NG89"),
+    _traj("W38", "vte_prophylaxis", 60, 0, 0, "N/A", "NG89"),
+
+    # mobility_and_rehabilitation — NG124 §1.10
+    _traj("W38", "mobility_and_rehabilitation",  1, 2, 3, "Mobilising with assistance", "NG124"),
+    _traj("W38", "mobility_and_rehabilitation",  3, 2, 3, "Short distance mobilisation", "NG124"),
+    _traj("W38", "mobility_and_rehabilitation",  7, 2, 2, "Walking with aid", "NG124"),
+    _traj("W38", "mobility_and_rehabilitation", 14, 1, 2, "Improving", "NG124"),
+    _traj("W38", "mobility_and_rehabilitation", 21, 1, 2, "Progressing", "NG124"),
+    _traj("W38", "mobility_and_rehabilitation", 28, 1, 1, "Good progress", "NG124"),
+    _traj("W38", "mobility_and_rehabilitation", 42, 1, 1, "Ongoing rehab", "NG124"),
+    _traj("W38", "mobility_and_rehabilitation", 60, 0, 1, "Near-normal", "NG124"),
+]
+
+
+W38_REQUIRED_QUESTIONS: list[RequiredQuestion] = [
+    _rq(
+        "W38",
+        "wound_healing",
+        "How is the wound looking — any redness spreading beyond the immediate scar area, any swelling that's worse in the last 24 hours, or fluid coming from it?",
+        [(1, 3), (4, 7), (8, 14), (15, 28)],
+        "NG124 §1.8",
+    ),
+    _rq(
+        "W38",
+        "pain_management",
+        "How is the pain — are the painkillers keeping things manageable enough to move around and do your exercises?",
+        [(1, 3), (4, 7), (8, 14), (15, 28)],
+        "NG124 §1.7",
+    ),
+    # Delirium screen — coverage-check phrasing asks about third-party
+    # observation because the patient themselves may not notice the
+    # fluctuating confusion that characterises delirium.
+    _rq(
+        "W38",
+        "delirium_cognitive_screen",
+        "Has anyone around you — family, carer, district nurse — mentioned that you've seemed more confused, drowsy, or different from your usual self in the last 24 hours?",
+        [(1, 3), (4, 7), (8, 14), (15, 28)],
+        "NG124 §1.6",
+    ),
+    _rq(
+        "W38",
+        "falls_risk",
+        "Have you had any falls or near-falls since we last spoke — even slips you caught yourself on?",
+        [(1, 3), (4, 7), (8, 14), (15, 28), (29, 60)],
+        "QS16",
+    ),
+    # VTE course is 28 days for hip fracture — injection question
+    # extends to day 28 (same as W37).
+    _rq(
+        "W38",
+        "vte_prophylaxis",
+        "Are you managing the blood-thinning injections each day, and how is the injection site?",
+        [(1, 3), (4, 7), (8, 14), (15, 28)],
+        "NG89 §1.9",
+    ),
+    _rq(
+        "W38",
+        "mobility_and_rehabilitation",
+        "How are you getting around — what walking aids you're using, how far you're walking, and are you managing stairs and getting in and out of chairs?",
+        [(1, 3), (4, 7), (8, 14), (15, 28), (29, 60)],
+        "NG124 §1.10",
+    ),
+    _rq(
+        "W38",
+        "mobility_and_rehabilitation",
+        "How are you getting on with the exercises the physio gave you, and have you started rehab or outpatient sessions yet?",
+        [(4, 7), (8, 14), (15, 28), (29, 60)],
+        "NG124 §1.10",
+    ),
+
+    # Day 29-60: longer-term recovery
+    _rq(
+        "W38",
+        "mobility_and_rehabilitation",
+        "Are you back to the level of independence you had before the fracture, or is there still support you're needing around the house?",
+        [(29, 60)],
+        "NG124 §1.10",
+    ),
+]
+
+
+# ─── W38 Red Flag Probes ───────────────────────────────────────────────
+
+W38_RED_FLAG_PROBES: dict[str, RedFlagProbe] = {
+
+    # ══ delirium_acute — 3 probes (all SAME_DAY) ═══════════════════════
+    # Post-op delirium in elderly hip-fracture patients is common and
+    # time-sensitive but not a 999 emergency on its own; NG124 §1.6
+    # expects same-day clinical review. Probes split into three classic
+    # features: acute onset confusion, agitation/distress, and
+    # perceptual disturbance (hallucinations). Wording uses carer-
+    # observed framing since the patient may not self-recognise the
+    # change — this is a coverage-check question per the module
+    # docstring's baseline-comparison rule.
+    "delirium_acute_confusion_onset": RedFlagProbe(
+        flag_code="delirium_acute_confusion_onset",
+        parent_flag_code="delirium_acute",
+        category=RedFlagCategory.PATHWAY_SPECIFIC,
+        nice_basis="NG124 §1.6",
+        patient_facing_question=(
+            "Has anyone around you said you've become more confused or "
+            "drowsy in the last day or two — trouble keeping track of "
+            "conversations, forgetting what you just said?"
+        ),
+        follow_up_escalation=EscalationTier.SAME_DAY,
+        validation_status=_DRAFT,
+    ),
+    "delirium_acute_agitation": RedFlagProbe(
+        flag_code="delirium_acute_agitation",
+        parent_flag_code="delirium_acute",
+        category=RedFlagCategory.PATHWAY_SPECIFIC,
+        nice_basis="NG124 §1.6",
+        patient_facing_question=(
+            "Has anyone around you noticed you've been unusually restless, "
+            "agitated, or distressed — particularly in the evenings or at night?"
+        ),
+        follow_up_escalation=EscalationTier.SAME_DAY,
+        validation_status=_DRAFT,
+    ),
+    "delirium_acute_perceptual": RedFlagProbe(
+        flag_code="delirium_acute_perceptual",
+        parent_flag_code="delirium_acute",
+        category=RedFlagCategory.PATHWAY_SPECIFIC,
+        nice_basis="NG124 §1.6",
+        patient_facing_question=(
+            "Have you — or has anyone with you noticed you — been seeing or "
+            "hearing things that other people don't?"
+        ),
+        follow_up_escalation=EscalationTier.SAME_DAY,
+        validation_status=_DRAFT,
+    ),
+    # CLINICAL_REVIEW_NEEDED: delirium_acute probes set to SAME_DAY per
+    # NG124 §1.6. Reviewer to confirm whether severe agitation posing
+    # an immediate safety risk should escalate to EMERGENCY_999, and
+    # whether this is a compound rule (perceptual + agitation firing
+    # together) for Phase 4 call-status logic rather than at the probe
+    # layer here.
+
+    # ══ dvt_symptoms — split by leg (both EMERGENCY_999) ═══════════════
+    "dvt_symptoms_non_operated_leg": RedFlagProbe(
+        flag_code="dvt_symptoms_non_operated_leg",
+        parent_flag_code="dvt_symptoms",
+        category=RedFlagCategory.PATHWAY_SPECIFIC,
+        nice_basis="NG89 §1.9 / NG158",
+        patient_facing_question=(
+            "Any new pain, swelling, or tenderness in your non-operated leg's calf?"
+        ),
+        follow_up_escalation=EscalationTier.EMERGENCY_999,
+        validation_status=_DRAFT,
+    ),
+    "dvt_symptoms_operated_leg": RedFlagProbe(
+        flag_code="dvt_symptoms_operated_leg",
+        parent_flag_code="dvt_symptoms",
+        category=RedFlagCategory.PATHWAY_SPECIFIC,
+        nice_basis="NG89 §1.9 / NG158",
+        patient_facing_question=(
+            "In your operated leg — any calf pain or tenderness that's new "
+            "in the last 24 hours, separate from the general post-op swelling?"
+        ),
+        follow_up_escalation=EscalationTier.EMERGENCY_999,
+        validation_status=_DRAFT,
+    ),
+
+    # ══ pe_symptoms — 2 probes (same pattern as W37/W40) ═══════════════
+    "pe_symptoms_breathing": RedFlagProbe(
+        flag_code="pe_symptoms_breathing",
+        parent_flag_code="pe_symptoms",
+        category=RedFlagCategory.ACUTE_SOB,
+        nice_basis="NG89 §1.9 / NG158",
+        patient_facing_question=(
+            "Have you had any sudden breathlessness today that made you stop what you were doing?"
+        ),
+        follow_up_escalation=EscalationTier.EMERGENCY_999,
+        validation_status=_DRAFT,
+    ),
+    "pe_symptoms_chest_pain": RedFlagProbe(
+        flag_code="pe_symptoms_chest_pain",
+        parent_flag_code="pe_symptoms",
+        category=RedFlagCategory.CHEST_PAIN,
+        nice_basis="NG89 §1.9 / NG158",
+        patient_facing_question=(
+            "Any sharp chest pain — especially when you breathe in deeply?"
+        ),
+        follow_up_escalation=EscalationTier.EMERGENCY_999,
+        validation_status=_DRAFT,
+    ),
+
+    # ══ wound_infection — 2 probes ═════════════════════════════════════
+    # W38 upstream uses 'wound_infection' parent (not 'wound_dehiscence'
+    # as in W37/W40). Same splitting logic: spreading-redness and
+    # discharge as distinct observations.
+    "wound_infection_spreading_redness": RedFlagProbe(
+        flag_code="wound_infection_spreading_redness",
+        parent_flag_code="wound_infection",
+        category=RedFlagCategory.PATHWAY_SPECIFIC,
+        nice_basis="QS48 / NG124 §1.8",
+        patient_facing_question=(
+            "Has the redness around the wound spread beyond the immediate scar area in the last 24 hours?"
+        ),
+        follow_up_escalation=EscalationTier.SAME_DAY,
+        validation_status=_DRAFT,
+    ),
+    "wound_infection_discharge": RedFlagProbe(
+        flag_code="wound_infection_discharge",
+        parent_flag_code="wound_infection",
+        category=RedFlagCategory.PATHWAY_SPECIFIC,
+        nice_basis="QS48 / NG124 §1.8",
+        patient_facing_question=(
+            "Is there any pus or bloody fluid coming from the wound?"
+        ),
+        follow_up_escalation=EscalationTier.SAME_DAY,
+        validation_status=_DRAFT,
+    ),
+
+    # ══ falls_with_injury — 3 probes ═══════════════════════════════════
+    # Elderly cohort, often on anticoagulants. Probes split by what
+    # was injured and how badly:
+    #   - new pain after a fall → SAME_DAY (soft tissue / minor injury)
+    #   - head strike → EMERGENCY_999 (intracranial haemorrhage risk
+    #     on anticoagulation)
+    #   - cannot bear weight after a fall → EMERGENCY_999 (refracture
+    #     or implant failure suspected)
+    "falls_with_injury_new_pain": RedFlagProbe(
+        flag_code="falls_with_injury_new_pain",
+        parent_flag_code="falls_with_injury",
+        category=RedFlagCategory.PATHWAY_SPECIFIC,
+        nice_basis="QS16 / NG124 §1.10",
+        patient_facing_question=(
+            "If you've had a fall, has it left you with any new pain — in "
+            "your arms, shoulders, back, or the other hip?"
+        ),
+        follow_up_escalation=EscalationTier.SAME_DAY,
+        validation_status=_DRAFT,
+    ),
+    "falls_with_injury_head_strike": RedFlagProbe(
+        flag_code="falls_with_injury_head_strike",
+        parent_flag_code="falls_with_injury",
+        category=RedFlagCategory.PATHWAY_SPECIFIC,
+        nice_basis="QS16 / NG124 §1.10",
+        patient_facing_question=(
+            "If you've had a fall, did you hit your head, black out, or can't remember the fall itself?"
+        ),
+        follow_up_escalation=EscalationTier.EMERGENCY_999,
+        validation_status=_DRAFT,
+    ),
+    "falls_with_injury_cannot_weight_bear": RedFlagProbe(
+        flag_code="falls_with_injury_cannot_weight_bear",
+        parent_flag_code="falls_with_injury",
+        category=RedFlagCategory.PATHWAY_SPECIFIC,
+        nice_basis="QS16 / NG124 §1.10",
+        patient_facing_question=(
+            "If you've had a fall, have you found you can't put weight on the operated leg at all since?"
+        ),
+        follow_up_escalation=EscalationTier.EMERGENCY_999,
+        validation_status=_DRAFT,
+    ),
+}
+
+
 # ─── Module-level registries ───────────────────────────────────────────
 
 PATHWAYS: dict[str, PathwayPlaybook] = {
     "W37": W37_PLAYBOOK,
+    "W38": W38_PLAYBOOK,
     "W40": W40_PLAYBOOK,
 }
 TRAJECTORIES: dict[str, list[DomainTrajectoryEntry]] = {
     "W37": W37_TRAJECTORIES,
+    "W38": W38_TRAJECTORIES,
     "W40": W40_TRAJECTORIES,
 }
 REQUIRED_QUESTIONS: dict[str, list[RequiredQuestion]] = {
     "W37": W37_REQUIRED_QUESTIONS,
+    "W38": W38_REQUIRED_QUESTIONS,
     "W40": W40_REQUIRED_QUESTIONS,
 }
 RED_FLAG_PROBES: dict[str, dict[str, RedFlagProbe]] = {
     "W37": W37_RED_FLAG_PROBES,
+    "W38": W38_RED_FLAG_PROBES,
     "W40": W40_RED_FLAG_PROBES,
 }
