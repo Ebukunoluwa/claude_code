@@ -1,13 +1,13 @@
 """Orthopaedic pathways — W37, W38, W40, W43.
 
-Phase 3 status: **W40 only** in this commit (Gate 2 per PLAN.md §7).
-W37, W38, W43 deferred to the next orthopaedic commit once the W40
-template has been reviewed and approved — confirms the R17/R18
-template translates cleanly to a non-obstetric surgical cluster.
+Phase 3 orthopaedic cluster. W40 landed first as the Gate-2 template
+confirming the R17/R18 obstetric template translates cleanly to a
+non-obstetric surgical cluster. W37/W38/W43 follow in separate commits
+applying the same template with pathway-specific divergences.
 
 Content sources:
   - Trajectories ported verbatim from benchmarks.py.
-  - Playbook metadata from monolith PLAYBOOKS.
+  - Playbook metadata from pathway_map.OPCS_TO_NICE_MAP.
   - Required Questions and Red Flag Probes net-new for Phase 3.
 
 Decisions during port (not open flags):
@@ -17,21 +17,26 @@ Decisions during port (not open flags):
     shivering indicates bacteraemia). Parent_flag_code stays as the
     monolith's 'fever_above_38_5' even though the clinical threshold
     is 38°C per QS48 SSI surveillance — CLINICAL_REVIEW_NEEDED below.
-  - knee_effusion_severe splits into three single-observation
+  - knee_effusion_severe (W40) splits into three single-observation
     probes (swelling, redness/heat, pain), all SAME_DAY individually.
     A compound rule — two+ effusion probes firing with any fever
     probe firing should auto-escalate to EMERGENCY_999 for suspected
     PJI sepsis — is flagged for Phase 4 call-status implementation,
     not encoded at the probe layer here.
   - dvt_symptoms splits into operated vs non-operated leg probes.
-    Post-TKR DVT most commonly occurs in the NON-operated leg; the
-    operated-leg question specifically excludes normal post-op
-    swelling to avoid both false positives (normal swelling) and
-    false negatives (patient focuses only on non-operated leg).
+    Post-arthroplasty DVT most commonly occurs in the NON-operated
+    leg; the operated-leg question specifically excludes normal
+    post-op swelling to avoid both false positives (normal swelling)
+    and false negatives (patient focuses only on non-operated leg).
     Both EMERGENCY_999.
   - pe_symptoms splits into breathing and chest pain, both 999,
     same as R17/R18 (no calf probe duplicated here since
     dvt_symptoms covers that).
+  - hip_dislocation (W37, W38) splits into three probes covering the
+    classic triad: sudden severe pain on movement, leg looking
+    shortened/externally rotated, and inability to bear weight after
+    a specific movement. All EMERGENCY_999. Patient-facing wording
+    avoids clinical terms ("dislocation", "external rotation").
 
 Wording principles applied throughout:
   No patient-memory-comparison phrasings ("worse than before",
@@ -44,8 +49,9 @@ Wording principles applied throughout:
   than asking the patient.
 
 Primary NICE sources: NG226 (joint replacement), TA304 (TKR devices),
-QS48 (surgical site infection), QS89 (VTE in hospital). Reviewer
-specialty: Orthopaedic surgeon.
+TA455 (THR devices), NG124 (hip fracture), QS16 (falls), QS48 (SSI),
+QS89 (VTE), NG89 (VTE in arthroplasty). Reviewer specialty:
+Orthopaedic surgeon (W38 is shared-care with geriatrician).
 """
 from ..models import (
     DomainTrajectoryEntry,
@@ -91,10 +97,10 @@ W40_PLAYBOOK = PathwayPlaybook(
 
 
 def _traj(
-    domain: str, day: int, expected: int, upper: int, state: str, nice: str,
+    opcs: str, domain: str, day: int, expected: int, upper: int, state: str, nice: str,
 ) -> DomainTrajectoryEntry:
     return DomainTrajectoryEntry(
-        opcs_code="W40",
+        opcs_code=opcs,
         domain=domain,
         day_range_start=day,
         day_range_end=day,
@@ -108,76 +114,76 @@ def _traj(
 
 W40_TRAJECTORIES: list[DomainTrajectoryEntry] = [
     # wound_healing — NG226 §1.8 (post-op wound care)
-    _traj("wound_healing",  1, 2, 3, "Wound intact, bruising and swelling expected", "NG226"),
-    _traj("wound_healing",  3, 2, 3, "Minor seepage acceptable", "NG226"),
-    _traj("wound_healing",  7, 1, 2, "Wound closing well", "NG226"),
-    _traj("wound_healing", 14, 1, 2, "Healing well", "NG226"),
-    _traj("wound_healing", 21, 1, 1, "Well healed", "NG226"),
-    _traj("wound_healing", 28, 0, 1, "Healed", "NG226"),
-    _traj("wound_healing", 42, 0, 1, "Healed", "NG226"),
-    _traj("wound_healing", 60, 0, 0, "Fully healed", "NG226"),
+    _traj("W40", "wound_healing",  1, 2, 3, "Wound intact, bruising and swelling expected", "NG226"),
+    _traj("W40", "wound_healing",  3, 2, 3, "Minor seepage acceptable", "NG226"),
+    _traj("W40", "wound_healing",  7, 1, 2, "Wound closing well", "NG226"),
+    _traj("W40", "wound_healing", 14, 1, 2, "Healing well", "NG226"),
+    _traj("W40", "wound_healing", 21, 1, 1, "Well healed", "NG226"),
+    _traj("W40", "wound_healing", 28, 0, 1, "Healed", "NG226"),
+    _traj("W40", "wound_healing", 42, 0, 1, "Healed", "NG226"),
+    _traj("W40", "wound_healing", 60, 0, 0, "Fully healed", "NG226"),
 
     # pain_management — NG226 §1.6
-    _traj("pain_management",  1, 2, 3, "Moderate pain expected post-op", "NG226"),
-    _traj("pain_management",  3, 2, 3, "Pain reducing with analgesia", "NG226"),
-    _traj("pain_management",  7, 2, 2, "Mild-moderate pain at activity", "NG226"),
-    _traj("pain_management", 14, 1, 2, "Mild pain reducing", "NG226"),
-    _traj("pain_management", 21, 1, 2, "Mild pain", "NG226"),
-    _traj("pain_management", 28, 1, 1, "Minimal pain", "NG226"),
-    _traj("pain_management", 42, 0, 1, "Pain resolving", "NG226"),
-    _traj("pain_management", 60, 0, 1, "Pain resolved or minimal", "NG226"),
+    _traj("W40", "pain_management",  1, 2, 3, "Moderate pain expected post-op", "NG226"),
+    _traj("W40", "pain_management",  3, 2, 3, "Pain reducing with analgesia", "NG226"),
+    _traj("W40", "pain_management",  7, 2, 2, "Mild-moderate pain at activity", "NG226"),
+    _traj("W40", "pain_management", 14, 1, 2, "Mild pain reducing", "NG226"),
+    _traj("W40", "pain_management", 21, 1, 2, "Mild pain", "NG226"),
+    _traj("W40", "pain_management", 28, 1, 1, "Minimal pain", "NG226"),
+    _traj("W40", "pain_management", 42, 0, 1, "Pain resolving", "NG226"),
+    _traj("W40", "pain_management", 60, 0, 1, "Pain resolved or minimal", "NG226"),
 
     # vte_prophylaxis — NG89 §1.9 (VTE in arthroplasty)
-    _traj("vte_prophylaxis",  1, 1, 2, "LMWH/anticoagulant commenced", "NG89"),
-    _traj("vte_prophylaxis",  3, 1, 2, "Adherent", "NG89"),
-    _traj("vte_prophylaxis",  7, 1, 2, "Adherent — 14-day course for knee", "NG89"),
-    _traj("vte_prophylaxis", 14, 1, 1, "Course completed at day 14 for TKR", "NG89"),
-    _traj("vte_prophylaxis", 21, 0, 1, "Completed", "NG89"),
-    _traj("vte_prophylaxis", 28, 0, 1, "Completed", "NG89"),
-    _traj("vte_prophylaxis", 42, 0, 0, "N/A", "NG89"),
-    _traj("vte_prophylaxis", 60, 0, 0, "N/A", "NG89"),
+    _traj("W40", "vte_prophylaxis",  1, 1, 2, "LMWH/anticoagulant commenced", "NG89"),
+    _traj("W40", "vte_prophylaxis",  3, 1, 2, "Adherent", "NG89"),
+    _traj("W40", "vte_prophylaxis",  7, 1, 2, "Adherent — 14-day course for knee", "NG89"),
+    _traj("W40", "vte_prophylaxis", 14, 1, 1, "Course completed at day 14 for TKR", "NG89"),
+    _traj("W40", "vte_prophylaxis", 21, 0, 1, "Completed", "NG89"),
+    _traj("W40", "vte_prophylaxis", 28, 0, 1, "Completed", "NG89"),
+    _traj("W40", "vte_prophylaxis", 42, 0, 0, "N/A", "NG89"),
+    _traj("W40", "vte_prophylaxis", 60, 0, 0, "N/A", "NG89"),
 
     # mobility_progress — NG226 §1.10 (early mobilisation)
-    _traj("mobility_progress",  1, 2, 3, "Walking with frame expected", "NG226"),
-    _traj("mobility_progress",  3, 2, 3, "Mobilising short distances", "NG226"),
-    _traj("mobility_progress",  7, 2, 2, "Walking with crutches/stick", "NG226"),
-    _traj("mobility_progress", 14, 1, 2, "Improving mobility", "NG226"),
-    _traj("mobility_progress", 21, 1, 2, "Increasing range of movement", "NG226"),
-    _traj("mobility_progress", 28, 1, 1, "Good progress, reduced aid", "NG226"),
-    _traj("mobility_progress", 42, 1, 1, "Near-normal mobility", "NG226"),
-    _traj("mobility_progress", 60, 0, 1, "Normal mobility expected", "NG226"),
+    _traj("W40", "mobility_progress",  1, 2, 3, "Walking with frame expected", "NG226"),
+    _traj("W40", "mobility_progress",  3, 2, 3, "Mobilising short distances", "NG226"),
+    _traj("W40", "mobility_progress",  7, 2, 2, "Walking with crutches/stick", "NG226"),
+    _traj("W40", "mobility_progress", 14, 1, 2, "Improving mobility", "NG226"),
+    _traj("W40", "mobility_progress", 21, 1, 2, "Increasing range of movement", "NG226"),
+    _traj("W40", "mobility_progress", 28, 1, 1, "Good progress, reduced aid", "NG226"),
+    _traj("W40", "mobility_progress", 42, 1, 1, "Near-normal mobility", "NG226"),
+    _traj("W40", "mobility_progress", 60, 0, 1, "Normal mobility expected", "NG226"),
 
     # infection_signs — QS48 §1 (SSI surveillance)
-    _traj("infection_signs",  1, 1, 2, "Normal post-op inflammation", "NG226"),
-    _traj("infection_signs",  3, 1, 2, "Monitor for increasing redness/heat/swelling", "NG226"),
-    _traj("infection_signs",  7, 1, 2, "Should be settling", "NG226"),
-    _traj("infection_signs", 14, 0, 1, "No signs expected", "NG226"),
-    _traj("infection_signs", 21, 0, 1, "No signs expected", "NG226"),
-    _traj("infection_signs", 28, 0, 1, "No signs expected", "NG226"),
-    _traj("infection_signs", 42, 0, 0, "Resolved", "NG226"),
-    _traj("infection_signs", 60, 0, 0, "Resolved", "NG226"),
+    _traj("W40", "infection_signs",  1, 1, 2, "Normal post-op inflammation", "NG226"),
+    _traj("W40", "infection_signs",  3, 1, 2, "Monitor for increasing redness/heat/swelling", "NG226"),
+    _traj("W40", "infection_signs",  7, 1, 2, "Should be settling", "NG226"),
+    _traj("W40", "infection_signs", 14, 0, 1, "No signs expected", "NG226"),
+    _traj("W40", "infection_signs", 21, 0, 1, "No signs expected", "NG226"),
+    _traj("W40", "infection_signs", 28, 0, 1, "No signs expected", "NG226"),
+    _traj("W40", "infection_signs", 42, 0, 0, "Resolved", "NG226"),
+    _traj("W40", "infection_signs", 60, 0, 0, "Resolved", "NG226"),
 
     # physiotherapy_compliance — NG226 §1.11
     # CLINICAL_REVIEW_NEEDED: trajectory assumes consistent outpatient
     # physio attendance. Real NHS attendance varies — reviewer to confirm
     # whether these expected values need softening for standard-care
     # vs enhanced-pathway patients.
-    _traj("physiotherapy_compliance",  1, 1, 2, "Exercises commenced, CPM if prescribed", "NG226"),
-    _traj("physiotherapy_compliance",  3, 1, 2, "Daily exercises ongoing", "NG226"),
-    _traj("physiotherapy_compliance",  7, 1, 2, "Outpatient physio commenced", "NG226"),
-    _traj("physiotherapy_compliance", 14, 1, 1, "Attending/doing physio regularly", "NG226"),
-    _traj("physiotherapy_compliance", 21, 1, 1, "Regular physio", "NG226"),
-    _traj("physiotherapy_compliance", 28, 1, 1, "Ongoing adherence", "NG226"),
-    _traj("physiotherapy_compliance", 42, 1, 1, "Ongoing adherence", "NG226"),
-    _traj("physiotherapy_compliance", 60, 0, 1, "Programme completing", "NG226"),
+    _traj("W40", "physiotherapy_compliance",  1, 1, 2, "Exercises commenced, CPM if prescribed", "NG226"),
+    _traj("W40", "physiotherapy_compliance",  3, 1, 2, "Daily exercises ongoing", "NG226"),
+    _traj("W40", "physiotherapy_compliance",  7, 1, 2, "Outpatient physio commenced", "NG226"),
+    _traj("W40", "physiotherapy_compliance", 14, 1, 1, "Attending/doing physio regularly", "NG226"),
+    _traj("W40", "physiotherapy_compliance", 21, 1, 1, "Regular physio", "NG226"),
+    _traj("W40", "physiotherapy_compliance", 28, 1, 1, "Ongoing adherence", "NG226"),
+    _traj("W40", "physiotherapy_compliance", 42, 1, 1, "Ongoing adherence", "NG226"),
+    _traj("W40", "physiotherapy_compliance", 60, 0, 1, "Programme completing", "NG226"),
 ]
 
 
 def _rq(
-    domain: str, text: str, bands: list[tuple[int, int]], nice: str,
+    opcs: str, domain: str, text: str, bands: list[tuple[int, int]], nice: str,
 ) -> RequiredQuestion:
     return RequiredQuestion(
-        opcs_code="W40",
+        opcs_code=opcs,
         domain=domain,
         question_text=text,
         required=True,
@@ -189,36 +195,42 @@ def _rq(
 W40_REQUIRED_QUESTIONS: list[RequiredQuestion] = [
     # Wound + infection are the two dominant Day 1-28 concerns (SSI risk).
     _rq(
+        "W40",
         "wound_healing",
         "How is the wound looking — any redness spreading beyond the immediate scar area, any swelling that's worse in the last 24 hours, or fluid coming from it?",
         [(1, 3), (4, 7), (8, 14), (15, 28)],
         "NG226 §1.8",
     ),
     _rq(
+        "W40",
         "pain_management",
         "How is the pain — are the painkillers keeping things manageable enough to move around and do your exercises?",
         [(1, 3), (4, 7), (8, 14), (15, 28)],
         "NG226 §1.6",
     ),
     _rq(
+        "W40",
         "vte_prophylaxis",
         "Are you managing the blood-thinning injections each day, and how is the injection site?",
         [(1, 3), (4, 7), (8, 14)],
         "NG89 §1.9",
     ),
     _rq(
+        "W40",
         "mobility_progress",
         "How are you getting around — walking aids you're using, distance you're managing, stairs?",
         [(1, 3), (4, 7), (8, 14), (15, 28), (29, 60)],
         "NG226 §1.10",
     ),
     _rq(
+        "W40",
         "physiotherapy_compliance",
         "How are you getting on with the physio exercises — doing them at home, and have you started outpatient sessions yet?",
         [(4, 7), (8, 14), (15, 28), (29, 60)],
         "NG226 §1.11",
     ),
     _rq(
+        "W40",
         "infection_signs",
         "Any heat or redness around the wound that has spread further than the scar area, a fever in the last 24 hours, or feeling generally unwell?",
         [(1, 3), (4, 7), (8, 14), (15, 28)],
@@ -227,6 +239,7 @@ W40_REQUIRED_QUESTIONS: list[RequiredQuestion] = [
 
     # Day 15-28: progress on range of movement, return to daily activities
     _rq(
+        "W40",
         "mobility_progress",
         "How is the knee bending and straightening — any particular movements that still feel stiff or stuck?",
         [(15, 28), (29, 60)],
@@ -235,6 +248,7 @@ W40_REQUIRED_QUESTIONS: list[RequiredQuestion] = [
 
     # Day 29-60: longer-term function
     _rq(
+        "W40",
         "physiotherapy_compliance",
         "How's physio going overall — nearing the end of your sessions, or still working on specific goals?",
         [(29, 60)],
@@ -429,9 +443,358 @@ W40_RED_FLAG_PROBES: dict[str, RedFlagProbe] = {
 }
 
 
+# ═══════════════════════════════════════════════════════════════════════
+# W37 — Total Hip Replacement
+# ═══════════════════════════════════════════════════════════════════════
+#
+# Divergences from W40 (TKR) worth flagging for the reviewer:
+#   - LMWH course is 28 days for THR (vs 14 days for TKR per NG89 §1.9).
+#     The vte_prophylaxis trajectory reflects adherence expected through
+#     day 28. RQ injection question extends into the (15, 28) band.
+#   - hip_dislocation replaces knee_effusion_severe as the pathway-
+#     specific red flag. Three probes: sudden severe pain on movement,
+#     leg appearing shortened or externally rotated, inability to bear
+#     weight after a specific movement. All EMERGENCY_999.
+#   - mobility_progress RQ includes hip-precaution framing: bending
+#     past 90°, crossing legs, twisting the operated leg inward. These
+#     are the classic posterior-approach precautions per NG226 §1.10.
+#   - Physiotherapy emphasis shifts to abduction strengthening and
+#     gait retraining rather than knee flexion range-of-movement.
+
+W37_PLAYBOOK = PathwayPlaybook(
+    opcs_code="W37",
+    label="Total Hip Replacement",
+    category="surgical",
+    nice_ids=["NG226", "TA455", "QS48", "QS89", "NG89"],
+    monitoring_window_days=60,
+    call_days=[1, 3, 7, 14, 21, 28, 42, 60],
+    domains=[
+        "wound_healing",
+        "pain_management",
+        "vte_prophylaxis",
+        "mobility_progress",
+        "infection_signs",
+        "physiotherapy_compliance",
+    ],
+    red_flag_codes=[
+        "wound_dehiscence",
+        "dvt_symptoms",
+        "hip_dislocation",
+        "fever_above_38_5",
+        "pe_symptoms",
+    ],
+    validation_status=_DRAFT,
+)
+
+
+W37_TRAJECTORIES: list[DomainTrajectoryEntry] = [
+    # wound_healing — NG226 §1.8
+    _traj("W37", "wound_healing",  1, 2, 3, "Wound intact, bruising expected", "NG226"),
+    _traj("W37", "wound_healing",  3, 2, 3, "Minor seepage acceptable", "NG226"),
+    _traj("W37", "wound_healing",  7, 1, 2, "Wound closing, sutures/clips in place", "NG226"),
+    _traj("W37", "wound_healing", 14, 1, 2, "Wound healing well", "NG226"),
+    _traj("W37", "wound_healing", 21, 1, 1, "Well healed", "NG226"),
+    _traj("W37", "wound_healing", 28, 0, 1, "Healed", "NG226"),
+    _traj("W37", "wound_healing", 42, 0, 1, "Healed", "NG226"),
+    _traj("W37", "wound_healing", 60, 0, 0, "Fully healed", "NG226"),
+
+    # pain_management — NG226 §1.6
+    _traj("W37", "pain_management",  1, 2, 3, "Moderate pain expected", "NG226"),
+    _traj("W37", "pain_management",  3, 2, 3, "Pain reducing with analgesia", "NG226"),
+    _traj("W37", "pain_management",  7, 2, 2, "Mild-moderate pain at activity", "NG226"),
+    _traj("W37", "pain_management", 14, 1, 2, "Mild pain reducing", "NG226"),
+    _traj("W37", "pain_management", 21, 1, 2, "Mild pain", "NG226"),
+    _traj("W37", "pain_management", 28, 1, 1, "Minimal pain", "NG226"),
+    _traj("W37", "pain_management", 42, 0, 1, "Pain resolving", "NG226"),
+    _traj("W37", "pain_management", 60, 0, 1, "Pain resolved or minimal", "NG226"),
+
+    # vte_prophylaxis — NG89 §1.9 (28-day course for THR)
+    _traj("W37", "vte_prophylaxis",  1, 1, 2, "LMWH/anticoagulant taken", "NG89"),
+    _traj("W37", "vte_prophylaxis",  3, 1, 2, "Adherent", "NG89"),
+    _traj("W37", "vte_prophylaxis",  7, 1, 2, "Adherent — 28-day course", "NG89"),
+    _traj("W37", "vte_prophylaxis", 14, 1, 2, "Adherent", "NG89"),
+    _traj("W37", "vte_prophylaxis", 21, 1, 2, "Adherent", "NG89"),
+    _traj("W37", "vte_prophylaxis", 28, 1, 1, "Course completed", "NG89"),
+    _traj("W37", "vte_prophylaxis", 42, 0, 1, "Course completed", "NG89"),
+    _traj("W37", "vte_prophylaxis", 60, 0, 0, "N/A", "NG89"),
+
+    # mobility_progress — NG226 §1.10
+    _traj("W37", "mobility_progress",  1, 2, 3, "Walking with frame expected", "NG226"),
+    _traj("W37", "mobility_progress",  3, 2, 3, "Mobilising short distances", "NG226"),
+    _traj("W37", "mobility_progress",  7, 2, 2, "Walking with aid", "NG226"),
+    _traj("W37", "mobility_progress", 14, 1, 2, "Improving mobility", "NG226"),
+    _traj("W37", "mobility_progress", 21, 1, 2, "Walking further", "NG226"),
+    _traj("W37", "mobility_progress", 28, 1, 1, "Good progress", "NG226"),
+    _traj("W37", "mobility_progress", 42, 1, 1, "Near-normal mobility", "NG226"),
+    _traj("W37", "mobility_progress", 60, 0, 1, "Normal mobility expected", "NG226"),
+
+    # infection_signs — QS48 §1
+    _traj("W37", "infection_signs",  1, 1, 2, "Normal post-op inflammation", "NG226"),
+    _traj("W37", "infection_signs",  3, 1, 2, "Monitor for increasing redness/heat", "NG226"),
+    _traj("W37", "infection_signs",  7, 1, 2, "Should be settling", "NG226"),
+    _traj("W37", "infection_signs", 14, 0, 1, "No signs expected", "NG226"),
+    _traj("W37", "infection_signs", 21, 0, 1, "No signs expected", "NG226"),
+    _traj("W37", "infection_signs", 28, 0, 1, "No signs expected", "NG226"),
+    _traj("W37", "infection_signs", 42, 0, 0, "Resolved", "NG226"),
+    _traj("W37", "infection_signs", 60, 0, 0, "Resolved", "NG226"),
+
+    # physiotherapy_compliance — NG226 §1.11
+    _traj("W37", "physiotherapy_compliance",  1, 1, 2, "Exercises commenced", "NG226"),
+    _traj("W37", "physiotherapy_compliance",  3, 1, 2, "Daily exercises in progress", "NG226"),
+    _traj("W37", "physiotherapy_compliance",  7, 1, 2, "Exercise programme ongoing", "NG226"),
+    _traj("W37", "physiotherapy_compliance", 14, 1, 1, "Attending/doing physio", "NG226"),
+    _traj("W37", "physiotherapy_compliance", 21, 1, 1, "Regular physio", "NG226"),
+    _traj("W37", "physiotherapy_compliance", 28, 1, 1, "Ongoing adherence", "NG226"),
+    _traj("W37", "physiotherapy_compliance", 42, 1, 1, "Ongoing adherence", "NG226"),
+    _traj("W37", "physiotherapy_compliance", 60, 0, 1, "Programme completing", "NG226"),
+]
+
+
+W37_REQUIRED_QUESTIONS: list[RequiredQuestion] = [
+    # Wound + infection are the two dominant Day 1-28 concerns (SSI risk).
+    _rq(
+        "W37",
+        "wound_healing",
+        "How is the wound looking — any redness spreading beyond the immediate scar area, any swelling that's worse in the last 24 hours, or fluid coming from it?",
+        [(1, 3), (4, 7), (8, 14), (15, 28)],
+        "NG226 §1.8",
+    ),
+    _rq(
+        "W37",
+        "pain_management",
+        "How is the pain — are the painkillers keeping things manageable enough to move around and do your exercises?",
+        [(1, 3), (4, 7), (8, 14), (15, 28)],
+        "NG226 §1.6",
+    ),
+    # VTE course is 28 days for THR — injection question extends to day 28.
+    _rq(
+        "W37",
+        "vte_prophylaxis",
+        "Are you managing the blood-thinning injections each day, and how is the injection site?",
+        [(1, 3), (4, 7), (8, 14), (15, 28)],
+        "NG89 §1.9",
+    ),
+    _rq(
+        "W37",
+        "mobility_progress",
+        "How are you getting around — walking aids you're using, distance you're managing, stairs?",
+        [(1, 3), (4, 7), (8, 14), (15, 28), (29, 60)],
+        "NG226 §1.10",
+    ),
+    # Hip-specific: precautions against posterior dislocation in the
+    # first 6 weeks. Framed as concrete behaviours rather than clinical
+    # terms ("dislocation", "flexion past 90°").
+    _rq(
+        "W37",
+        "mobility_progress",
+        "Are you keeping to the hip precautions — not bending the hip past a right angle, not crossing your legs, not twisting the operated leg inward?",
+        [(1, 3), (4, 7), (8, 14), (15, 28)],
+        "NG226 §1.10",
+    ),
+    _rq(
+        "W37",
+        "physiotherapy_compliance",
+        "How are you getting on with the physio exercises — doing them at home, and have you started outpatient sessions yet?",
+        [(4, 7), (8, 14), (15, 28), (29, 60)],
+        "NG226 §1.11",
+    ),
+    _rq(
+        "W37",
+        "infection_signs",
+        "Any heat or redness around the wound that has spread further than the scar area, a fever in the last 24 hours, or feeling generally unwell?",
+        [(1, 3), (4, 7), (8, 14), (15, 28)],
+        "QS48",
+    ),
+
+    # Day 29-60: longer-term function + physio completion
+    _rq(
+        "W37",
+        "physiotherapy_compliance",
+        "How's physio going overall — nearing the end of your sessions, or still working on specific goals?",
+        [(29, 60)],
+        "NG226 §1.11",
+    ),
+]
+
+
+# ─── W37 Red Flag Probes ───────────────────────────────────────────────
+
+W37_RED_FLAG_PROBES: dict[str, RedFlagProbe] = {
+
+    # ══ wound_dehiscence — 2 probes (same pattern as W40/R17/R18) ══════
+    "wound_dehiscence_gaping": RedFlagProbe(
+        flag_code="wound_dehiscence_gaping",
+        parent_flag_code="wound_dehiscence",
+        category=RedFlagCategory.PATHWAY_SPECIFIC,
+        nice_basis="NG226 §1.8",
+        patient_facing_question=(
+            "Has the wound opened up at all — the edges of the scar coming apart?"
+        ),
+        follow_up_escalation=EscalationTier.EMERGENCY_999,
+        validation_status=_DRAFT,
+    ),
+    "wound_dehiscence_discharge": RedFlagProbe(
+        flag_code="wound_dehiscence_discharge",
+        parent_flag_code="wound_dehiscence",
+        category=RedFlagCategory.PATHWAY_SPECIFIC,
+        nice_basis="NG226 §1.8",
+        patient_facing_question=(
+            "Is there any pus or bloody fluid coming from the wound?"
+        ),
+        follow_up_escalation=EscalationTier.SAME_DAY,
+        validation_status=_DRAFT,
+    ),
+
+    # ══ dvt_symptoms — split by leg (both EMERGENCY_999) ═══════════════
+    # Same principle as W40: post-arthroplasty DVT most commonly occurs
+    # in the NON-operated leg, and the operated-leg probe must
+    # distinguish new/worsening calf pain from the expected post-op
+    # swelling using a 24-hour anchor rather than memory comparison.
+    "dvt_symptoms_non_operated_leg": RedFlagProbe(
+        flag_code="dvt_symptoms_non_operated_leg",
+        parent_flag_code="dvt_symptoms",
+        category=RedFlagCategory.PATHWAY_SPECIFIC,
+        nice_basis="NG89 §1.9 / NG158",
+        patient_facing_question=(
+            "Any new pain, swelling, or tenderness in your non-operated leg's calf?"
+        ),
+        follow_up_escalation=EscalationTier.EMERGENCY_999,
+        validation_status=_DRAFT,
+    ),
+    "dvt_symptoms_operated_leg": RedFlagProbe(
+        flag_code="dvt_symptoms_operated_leg",
+        parent_flag_code="dvt_symptoms",
+        category=RedFlagCategory.PATHWAY_SPECIFIC,
+        nice_basis="NG89 §1.9 / NG158",
+        patient_facing_question=(
+            "In your operated leg — any calf pain or tenderness that's new "
+            "in the last 24 hours, separate from the general post-op swelling?"
+        ),
+        follow_up_escalation=EscalationTier.EMERGENCY_999,
+        validation_status=_DRAFT,
+    ),
+
+    # ══ hip_dislocation — 3 probes (all EMERGENCY_999) ═════════════════
+    # Classic triad of posterior hip dislocation: sudden severe pain
+    # triggered by a specific movement, leg appearing shortened and
+    # externally rotated, inability to bear weight on the operated leg.
+    # Highest risk window is weeks 2-6 per NG226 §1.10. Patient-facing
+    # wording avoids the word "dislocation" (frightening, ambiguous).
+    "hip_dislocation_sudden_pain": RedFlagProbe(
+        flag_code="hip_dislocation_sudden_pain",
+        parent_flag_code="hip_dislocation",
+        category=RedFlagCategory.PATHWAY_SPECIFIC,
+        nice_basis="NG226 §1.10",
+        patient_facing_question=(
+            "Have you had any sudden, severe pain in the operated hip — the "
+            "kind that came on with a specific movement or a twist?"
+        ),
+        follow_up_escalation=EscalationTier.EMERGENCY_999,
+        validation_status=_DRAFT,
+    ),
+    "hip_dislocation_leg_appearance": RedFlagProbe(
+        flag_code="hip_dislocation_leg_appearance",
+        parent_flag_code="hip_dislocation",
+        category=RedFlagCategory.PATHWAY_SPECIFIC,
+        nice_basis="NG226 §1.10",
+        patient_facing_question=(
+            "Does the operated leg look shorter than the other one now, or "
+            "is the foot pointing outward in a way it wasn't this morning?"
+        ),
+        follow_up_escalation=EscalationTier.EMERGENCY_999,
+        validation_status=_DRAFT,
+    ),
+    "hip_dislocation_cannot_weight_bear": RedFlagProbe(
+        flag_code="hip_dislocation_cannot_weight_bear",
+        parent_flag_code="hip_dislocation",
+        category=RedFlagCategory.PATHWAY_SPECIFIC,
+        nice_basis="NG226 §1.10",
+        patient_facing_question=(
+            "After a particular movement today, have you found you suddenly "
+            "can't put any weight on the operated leg at all?"
+        ),
+        follow_up_escalation=EscalationTier.EMERGENCY_999,
+        validation_status=_DRAFT,
+    ),
+
+    # ══ fever_above_38_5 — 3 probes: reading, symptoms, rigors ═════════
+    # Same structure as W40. QS48 SSI threshold is 38°C; upstream
+    # monolith code retains 'fever_above_38_5' parent for compatibility.
+    "fever_above_38_5_reading": RedFlagProbe(
+        flag_code="fever_above_38_5_reading",
+        parent_flag_code="fever_above_38_5",
+        category=RedFlagCategory.PATHWAY_SPECIFIC,
+        nice_basis="QS48 / NG226 §1.8",
+        patient_facing_question=(
+            "If you have a thermometer — has your temperature been above 38?"
+        ),
+        follow_up_escalation=EscalationTier.SAME_DAY,
+        validation_status=_DRAFT,
+    ),
+    "fever_above_38_5_symptoms": RedFlagProbe(
+        flag_code="fever_above_38_5_symptoms",
+        parent_flag_code="fever_above_38_5",
+        category=RedFlagCategory.PATHWAY_SPECIFIC,
+        nice_basis="QS48 / NG226 §1.8",
+        patient_facing_question=(
+            "Have you felt hot-and-cold, sweaty, or feverish in the last 24 hours?"
+        ),
+        follow_up_escalation=EscalationTier.SAME_DAY,
+        validation_status=_DRAFT,
+    ),
+    "fever_with_rigors": RedFlagProbe(
+        flag_code="fever_with_rigors",
+        parent_flag_code="fever_above_38_5",
+        category=RedFlagCategory.SEPSIS_SIGNS,
+        nice_basis="QS48 / NG51 §1.1",
+        patient_facing_question=(
+            "Have you had any episodes of uncontrollable shivering or shaking?"
+        ),
+        follow_up_escalation=EscalationTier.EMERGENCY_999,
+        validation_status=_DRAFT,
+    ),
+
+    # ══ pe_symptoms — 2 probes (same pattern as W40/R17/R18) ═══════════
+    "pe_symptoms_breathing": RedFlagProbe(
+        flag_code="pe_symptoms_breathing",
+        parent_flag_code="pe_symptoms",
+        category=RedFlagCategory.ACUTE_SOB,
+        nice_basis="NG89 §1.9 / NG158",
+        patient_facing_question=(
+            "Have you had any sudden breathlessness today that made you stop what you were doing?"
+        ),
+        follow_up_escalation=EscalationTier.EMERGENCY_999,
+        validation_status=_DRAFT,
+    ),
+    "pe_symptoms_chest_pain": RedFlagProbe(
+        flag_code="pe_symptoms_chest_pain",
+        parent_flag_code="pe_symptoms",
+        category=RedFlagCategory.CHEST_PAIN,
+        nice_basis="NG89 §1.9 / NG158",
+        patient_facing_question=(
+            "Any sharp chest pain — especially when you breathe in deeply?"
+        ),
+        follow_up_escalation=EscalationTier.EMERGENCY_999,
+        validation_status=_DRAFT,
+    ),
+}
+
+
 # ─── Module-level registries ───────────────────────────────────────────
 
-PATHWAYS: dict[str, PathwayPlaybook] = {"W40": W40_PLAYBOOK}
-TRAJECTORIES: dict[str, list[DomainTrajectoryEntry]] = {"W40": W40_TRAJECTORIES}
-REQUIRED_QUESTIONS: dict[str, list[RequiredQuestion]] = {"W40": W40_REQUIRED_QUESTIONS}
-RED_FLAG_PROBES: dict[str, dict[str, RedFlagProbe]] = {"W40": W40_RED_FLAG_PROBES}
+PATHWAYS: dict[str, PathwayPlaybook] = {
+    "W37": W37_PLAYBOOK,
+    "W40": W40_PLAYBOOK,
+}
+TRAJECTORIES: dict[str, list[DomainTrajectoryEntry]] = {
+    "W37": W37_TRAJECTORIES,
+    "W40": W40_TRAJECTORIES,
+}
+REQUIRED_QUESTIONS: dict[str, list[RequiredQuestion]] = {
+    "W37": W37_REQUIRED_QUESTIONS,
+    "W40": W40_REQUIRED_QUESTIONS,
+}
+RED_FLAG_PROBES: dict[str, dict[str, RedFlagProbe]] = {
+    "W37": W37_RED_FLAG_PROBES,
+    "W40": W40_RED_FLAG_PROBES,
+}
