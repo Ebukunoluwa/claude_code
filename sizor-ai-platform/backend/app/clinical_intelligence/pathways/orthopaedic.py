@@ -794,6 +794,7 @@ W37_RED_FLAG_PROBES: dict[str, RedFlagProbe] = {
 
 # ═══════════════════════════════════════════════════════════════════════
 # W38 — Hip Fracture / Hemiarthroplasty
+# Patient-facing wording audit: 2026-04-24 (no changes required)
 # ═══════════════════════════════════════════════════════════════════════
 #
 # Divergences from W37/W40 worth flagging for the reviewer:
