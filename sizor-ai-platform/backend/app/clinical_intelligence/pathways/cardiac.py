@@ -1249,11 +1249,13 @@ K60_REQUIRED_QUESTIONS: list[RequiredQuestion] = [
     ),
     # Renal-function RQ asks about symptomatic proxies (less pee, more
     # tired) rather than blood results. Voice agent has no lab access;
-    # the GP team arranges bloods.
+    # the GP team arranges bloods. Frequency anchors are concrete
+    # (every 2-3 hours / only a few small amounts) rather than memory
+    # comparisons to pre-admission.
     _rq(
         "K60",
         "renal_function",
-        "How often are you peeing in a day compared to before you were admitted — much less, about the same, or more? Any feeling more tired or muddled than the last call?",
+        "How often are you peeing in a day — every 2 to 3 hours, less often than that, or only a few small amounts all day? Any feeling more tired or muddled in the last 24 hours?",
         [(1, 3), (4, 7), (8, 14), (15, 28), (29, 60)],
         "NG106 §1.6",
     ),
@@ -1302,9 +1304,9 @@ K60_RED_FLAG_PROBES: dict[str, RedFlagProbe] = {
         category=RedFlagCategory.ACUTE_SOB,
         nice_basis="NG106 §1.4 / CG187",
         patient_facing_question=(
-            "Have you needed to prop yourself up on more pillows than usual "
-            "to breathe at night, or have you woken up suddenly gasping "
-            "for air, in the last 24 hours?"
+            "Have you woken up suddenly gasping for air in the last 24 "
+            "hours, or had to sit bolt upright in bed to catch your "
+            "breath?"
         ),
         follow_up_escalation=EscalationTier.EMERGENCY_999,
         validation_status=_DRAFT,
@@ -1443,8 +1445,9 @@ K60_RED_FLAG_PROBES: dict[str, RedFlagProbe] = {
         category=RedFlagCategory.PATHWAY_SPECIFIC,
         nice_basis="NG106 §1.6",
         patient_facing_question=(
-            "Have you not peed at all for more than 12 hours, or been "
-            "peeing much less than you normally do despite drinking fluids?"
+            "Have you not peed at all for more than 12 hours, or only "
+            "passed a small amount once or twice all day — despite "
+            "drinking fluids?"
         ),
         follow_up_escalation=EscalationTier.SAME_DAY,
         validation_status=_DRAFT,
