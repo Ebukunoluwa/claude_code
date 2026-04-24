@@ -445,6 +445,7 @@ W40_RED_FLAG_PROBES: dict[str, RedFlagProbe] = {
 
 # ═══════════════════════════════════════════════════════════════════════
 # W37 — Total Hip Replacement
+# Patient-facing wording audit: 2026-04-24 (no changes required)
 # ═══════════════════════════════════════════════════════════════════════
 #
 # Divergences from W40 (TKR) worth flagging for the reviewer:
