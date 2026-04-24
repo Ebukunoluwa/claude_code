@@ -484,7 +484,7 @@ async def update_pathway(
                 import logging as _logging
                 _log = _logging.getLogger(__name__)
                 try:
-                    from ..clinical.playbook import generate_playbook
+                    from ..clinical_intelligence.playbook import generate_playbook
                     from ..services.llm_client import LLMClient
                     from ..services.rag_service import retrieve_nice_context
                     from ..models import DomainBenchmark
@@ -1479,7 +1479,7 @@ async def pathway_register(
         import logging as _logging
         _logger = _logging.getLogger(__name__)
         try:
-            from ..clinical.playbook import generate_playbook
+            from ..clinical_intelligence.playbook import generate_playbook
             from ..services.llm_client import LLMClient
             from ..services.rag_service import retrieve_nice_context
             from ..models import DomainBenchmark

@@ -449,7 +449,7 @@ def process_call(call_id: str):
 
             # ── Task 6: Regenerate playbook for next scheduled call ───────────
             try:
-                from ..clinical.playbook import generate_playbook
+                from ..clinical_intelligence.playbook import generate_playbook
                 from ..services.llm_client import LLMClient
                 from ..services.rag_service import retrieve_nice_context
 

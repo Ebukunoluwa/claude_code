@@ -236,7 +236,7 @@ async def get_call_context(
         # ALWAYS guarantee a non-null playbook when a pathway is registered.
         # Fill any domain missing from the stored playbook with a template so
         # the voice agent NEVER falls back to the generic assessment script.
-        from ..clinical.playbook import _make_template
+        from ..clinical_intelligence.playbook import _make_template
         playbook_for_day = playbook_for_day or {}
         for _dom in custom_domains:
             if _dom not in playbook_for_day:
