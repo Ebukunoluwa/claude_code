@@ -21,6 +21,8 @@ from .models import (
     DomainProbeSet,
     DomainScore,
     DomainTrajectoryEntry,
+    DomainTrend,
+    EscalationTier,
     FieldState,
     OverallCallStatus,
     PathwayPlaybook,
@@ -35,8 +37,14 @@ from .models import (
     SocratesProbeTemplate,
     ValidationStatus,
 )
+from .scoring import (
+    compute_overall_call_status,
+    score_0_10_to_0_4,
+    score_patient_domain,
+)
 
 __all__ = [
+    # Models
     "CallRiskAssessment",
     "ConfidenceLevel",
     "CoverageReport",
@@ -45,6 +53,8 @@ __all__ = [
     "DomainProbeSet",
     "DomainScore",
     "DomainTrajectoryEntry",
+    "DomainTrend",
+    "EscalationTier",
     "FieldState",
     "OverallCallStatus",
     "PathwayPlaybook",
@@ -58,4 +68,8 @@ __all__ = [
     "SocratesDimensionEntry",
     "SocratesProbeTemplate",
     "ValidationStatus",
+    # Scoring
+    "compute_overall_call_status",
+    "score_0_10_to_0_4",
+    "score_patient_domain",
 ]
