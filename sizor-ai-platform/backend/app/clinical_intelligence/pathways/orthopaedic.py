@@ -1138,25 +1138,326 @@ W38_RED_FLAG_PROBES: dict[str, RedFlagProbe] = {
 }
 
 
+# ═══════════════════════════════════════════════════════════════════════
+# W43 — Unicompartmental Knee Replacement
+# ═══════════════════════════════════════════════════════════════════════
+#
+# UKR is a smaller intervention than TKR — only one compartment of
+# the knee is replaced. Recovery is faster, monitoring window is
+# shorter (42 days vs 60 for TKR/THR).
+#
+# Divergences from W40 (TKR) worth flagging for the reviewer:
+#   - No infection_signs as a separate trajectory domain (absent from
+#     benchmarks.py for W43 and from pathway_map.monitoring_domains).
+#     Infection monitoring happens via wound_healing RQ phrasing +
+#     the wound_infection red flag probe.
+#   - persistent_swelling replaces knee_effusion_severe as the
+#     pathway-specific red flag. 'Persistent' means swelling lasting
+#     past the expected resolution window (~4 weeks) and is the
+#     classic presentation of unicompartmental implant failure, late
+#     haemarthrosis, or prosthetic joint infection. Three probes:
+#     contralateral-knee comparison (concrete anchor), swelling-with-
+#     functional-pain (behavioural anchor), swelling-with-warmth-or-
+#     spreading-redness (infection overlap).
+#   - No fever_above_38_5 red flag in pathway_map for W43 (vs present
+#     in W37/W40). CLINICAL_REVIEW_NEEDED below — may be an oversight
+#     in the upstream map; SSI surveillance per QS48 applies to all
+#     surgical wounds.
+#   - VTE 14-day course (same as W40 TKR, shorter than W37/W38).
+
+W43_PLAYBOOK = PathwayPlaybook(
+    opcs_code="W43",
+    label="Unicompartmental Knee Replacement",
+    category="surgical",
+    nice_ids=["NG226", "QS48", "QS89"],
+    monitoring_window_days=42,
+    call_days=[1, 3, 7, 14, 21, 28, 42],
+    domains=[
+        "wound_healing",
+        "pain_management",
+        "vte_prophylaxis",
+        "mobility_progress",
+        "physiotherapy_compliance",
+    ],
+    red_flag_codes=[
+        "dvt_symptoms",
+        "wound_infection",
+        "pe_symptoms",
+        "persistent_swelling",
+    ],
+    validation_status=_DRAFT,
+)
+
+
+W43_TRAJECTORIES: list[DomainTrajectoryEntry] = [
+    # wound_healing — NG226 §1.8
+    _traj("W43", "wound_healing",  1, 2, 3, "Wound intact, bruising expected", "NG226"),
+    _traj("W43", "wound_healing",  3, 2, 3, "Minor seepage acceptable", "NG226"),
+    _traj("W43", "wound_healing",  7, 1, 2, "Wound closing, sutures in place", "NG226"),
+    _traj("W43", "wound_healing", 14, 1, 2, "Healing well", "NG226"),
+    _traj("W43", "wound_healing", 21, 1, 1, "Well healed", "NG226"),
+    _traj("W43", "wound_healing", 28, 0, 1, "Healed", "NG226"),
+    _traj("W43", "wound_healing", 42, 0, 0, "Fully healed", "NG226"),
+
+    # pain_management — NG226 §1.6
+    _traj("W43", "pain_management",  1, 2, 3, "Moderate pain expected", "NG226"),
+    _traj("W43", "pain_management",  3, 2, 3, "Pain reducing with analgesia", "NG226"),
+    _traj("W43", "pain_management",  7, 1, 2, "Mild-moderate pain at activity", "NG226"),
+    _traj("W43", "pain_management", 14, 1, 2, "Mild pain reducing", "NG226"),
+    _traj("W43", "pain_management", 21, 1, 1, "Minimal pain", "NG226"),
+    _traj("W43", "pain_management", 28, 0, 1, "Resolving", "NG226"),
+    _traj("W43", "pain_management", 42, 0, 1, "Resolved or minimal", "NG226"),
+
+    # vte_prophylaxis — NG89 §1.9 (14-day course for UKR, same as TKR)
+    _traj("W43", "vte_prophylaxis",  1, 1, 2, "Anticoagulant commenced", "NG89"),
+    _traj("W43", "vte_prophylaxis",  3, 1, 2, "Adherent", "NG89"),
+    _traj("W43", "vte_prophylaxis",  7, 1, 2, "Adherent — 14-day course", "NG89"),
+    _traj("W43", "vte_prophylaxis", 14, 1, 1, "Course completed", "NG89"),
+    _traj("W43", "vte_prophylaxis", 21, 0, 1, "Completed", "NG89"),
+    _traj("W43", "vte_prophylaxis", 28, 0, 1, "Completed", "NG89"),
+    _traj("W43", "vte_prophylaxis", 42, 0, 0, "N/A", "NG89"),
+
+    # mobility_progress — NG226 §1.10 (faster recovery than TKR)
+    _traj("W43", "mobility_progress",  1, 2, 3, "Walking with crutches expected", "NG226"),
+    _traj("W43", "mobility_progress",  3, 2, 2, "Short distance mobilisation", "NG226"),
+    _traj("W43", "mobility_progress",  7, 1, 2, "Increasing mobility", "NG226"),
+    _traj("W43", "mobility_progress", 14, 1, 2, "Good progress", "NG226"),
+    _traj("W43", "mobility_progress", 21, 1, 1, "Near-normal mobility", "NG226"),
+    _traj("W43", "mobility_progress", 28, 0, 1, "Normal range expected", "NG226"),
+    _traj("W43", "mobility_progress", 42, 0, 1, "Normal mobility", "NG226"),
+
+    # physiotherapy_compliance — NG226 §1.11
+    _traj("W43", "physiotherapy_compliance",  1, 1, 2, "Exercises commenced", "NG226"),
+    _traj("W43", "physiotherapy_compliance",  3, 1, 2, "Daily exercises ongoing", "NG226"),
+    _traj("W43", "physiotherapy_compliance",  7, 1, 2, "Outpatient physio commenced", "NG226"),
+    _traj("W43", "physiotherapy_compliance", 14, 1, 1, "Attending physio", "NG226"),
+    _traj("W43", "physiotherapy_compliance", 21, 1, 1, "Regular physio", "NG226"),
+    _traj("W43", "physiotherapy_compliance", 28, 1, 1, "Ongoing adherence", "NG226"),
+    _traj("W43", "physiotherapy_compliance", 42, 0, 1, "Programme completing", "NG226"),
+]
+
+
+W43_REQUIRED_QUESTIONS: list[RequiredQuestion] = [
+    # Wound RQ incorporates fever-in-24h coverage since there is no
+    # separate infection_signs domain or fever_above_38_5 red flag
+    # for W43 — see CLINICAL_REVIEW_NEEDED at the end of the file.
+    _rq(
+        "W43",
+        "wound_healing",
+        "How is the wound looking — any redness spreading beyond the immediate scar area, any swelling that's worse in the last 24 hours, fluid coming from it, or a fever in the last 24 hours?",
+        [(1, 3), (4, 7), (8, 14), (15, 28)],
+        "NG226 §1.8 / QS48",
+    ),
+    _rq(
+        "W43",
+        "pain_management",
+        "How is the pain — are the painkillers keeping things manageable enough to move around and do your exercises?",
+        [(1, 3), (4, 7), (8, 14), (15, 28)],
+        "NG226 §1.6",
+    ),
+    _rq(
+        "W43",
+        "vte_prophylaxis",
+        "Are you managing the blood-thinning injections each day, and how is the injection site?",
+        [(1, 3), (4, 7), (8, 14)],
+        "NG89 §1.9",
+    ),
+    _rq(
+        "W43",
+        "mobility_progress",
+        "How are you getting around — what walking aids you're using, distance you're managing, and stairs?",
+        [(1, 3), (4, 7), (8, 14), (15, 28), (29, 42)],
+        "NG226 §1.10",
+    ),
+    _rq(
+        "W43",
+        "physiotherapy_compliance",
+        "How are you getting on with the physio exercises — doing them at home, and have you started outpatient sessions yet?",
+        [(4, 7), (8, 14), (15, 28), (29, 42)],
+        "NG226 §1.11",
+    ),
+
+    # Day 15-28: range of movement progress
+    _rq(
+        "W43",
+        "mobility_progress",
+        "How is the knee bending and straightening — any particular movements that still feel stiff or stuck?",
+        [(15, 28), (29, 42)],
+        "NG226 §1.10",
+    ),
+
+    # Day 29-42: programme completion
+    _rq(
+        "W43",
+        "physiotherapy_compliance",
+        "How's physio going overall — nearing the end of your sessions, or still working on specific goals?",
+        [(29, 42)],
+        "NG226 §1.11",
+    ),
+]
+
+
+# ─── W43 Red Flag Probes ───────────────────────────────────────────────
+
+W43_RED_FLAG_PROBES: dict[str, RedFlagProbe] = {
+
+    # ══ dvt_symptoms — split by leg (both EMERGENCY_999) ═══════════════
+    "dvt_symptoms_non_operated_leg": RedFlagProbe(
+        flag_code="dvt_symptoms_non_operated_leg",
+        parent_flag_code="dvt_symptoms",
+        category=RedFlagCategory.PATHWAY_SPECIFIC,
+        nice_basis="NG89 §1.9 / NG158",
+        patient_facing_question=(
+            "Any new pain, swelling, or tenderness in your non-operated leg's calf?"
+        ),
+        follow_up_escalation=EscalationTier.EMERGENCY_999,
+        validation_status=_DRAFT,
+    ),
+    "dvt_symptoms_operated_leg": RedFlagProbe(
+        flag_code="dvt_symptoms_operated_leg",
+        parent_flag_code="dvt_symptoms",
+        category=RedFlagCategory.PATHWAY_SPECIFIC,
+        nice_basis="NG89 §1.9 / NG158",
+        patient_facing_question=(
+            "In your operated leg — any calf pain or tenderness that's new "
+            "in the last 24 hours, separate from the general post-op swelling?"
+        ),
+        follow_up_escalation=EscalationTier.EMERGENCY_999,
+        validation_status=_DRAFT,
+    ),
+
+    # ══ wound_infection — 2 probes (same pattern as W38) ═══════════════
+    "wound_infection_spreading_redness": RedFlagProbe(
+        flag_code="wound_infection_spreading_redness",
+        parent_flag_code="wound_infection",
+        category=RedFlagCategory.PATHWAY_SPECIFIC,
+        nice_basis="QS48 / NG226 §1.8",
+        patient_facing_question=(
+            "Has the redness around the wound spread beyond the immediate scar area in the last 24 hours?"
+        ),
+        follow_up_escalation=EscalationTier.SAME_DAY,
+        validation_status=_DRAFT,
+    ),
+    "wound_infection_discharge": RedFlagProbe(
+        flag_code="wound_infection_discharge",
+        parent_flag_code="wound_infection",
+        category=RedFlagCategory.PATHWAY_SPECIFIC,
+        nice_basis="QS48 / NG226 §1.8",
+        patient_facing_question=(
+            "Is there any pus or bloody fluid coming from the wound?"
+        ),
+        follow_up_escalation=EscalationTier.SAME_DAY,
+        validation_status=_DRAFT,
+    ),
+
+    # ══ pe_symptoms — 2 probes (same pattern as W37/W38/W40) ═══════════
+    "pe_symptoms_breathing": RedFlagProbe(
+        flag_code="pe_symptoms_breathing",
+        parent_flag_code="pe_symptoms",
+        category=RedFlagCategory.ACUTE_SOB,
+        nice_basis="NG89 §1.9 / NG158",
+        patient_facing_question=(
+            "Have you had any sudden breathlessness today that made you stop what you were doing?"
+        ),
+        follow_up_escalation=EscalationTier.EMERGENCY_999,
+        validation_status=_DRAFT,
+    ),
+    "pe_symptoms_chest_pain": RedFlagProbe(
+        flag_code="pe_symptoms_chest_pain",
+        parent_flag_code="pe_symptoms",
+        category=RedFlagCategory.CHEST_PAIN,
+        nice_basis="NG89 §1.9 / NG158",
+        patient_facing_question=(
+            "Any sharp chest pain — especially when you breathe in deeply?"
+        ),
+        follow_up_escalation=EscalationTier.EMERGENCY_999,
+        validation_status=_DRAFT,
+    ),
+
+    # ══ persistent_swelling — 3 probes (all SAME_DAY) ══════════════════
+    # UKR-specific. Persistent swelling past the expected ~4-week
+    # resolution window is the classic presentation of unicompartmental
+    # implant failure, late haemarthrosis, or prosthetic joint infection.
+    # Probes use concrete anchors:
+    #   - contralateral-knee comparison (patient checks both knees now)
+    #   - swelling-with-functional-pain (behavioural anchor)
+    #   - swelling-with-warmth-or-spreading-redness (infection overlap)
+    "persistent_swelling_vs_other_knee": RedFlagProbe(
+        flag_code="persistent_swelling_vs_other_knee",
+        parent_flag_code="persistent_swelling",
+        category=RedFlagCategory.PATHWAY_SPECIFIC,
+        nice_basis="NG226 §1.8",
+        patient_facing_question=(
+            "Putting your hands around both knees right now — is the operated "
+            "knee still noticeably larger than the other one?"
+        ),
+        follow_up_escalation=EscalationTier.SAME_DAY,
+        validation_status=_DRAFT,
+    ),
+    "persistent_swelling_with_pain": RedFlagProbe(
+        flag_code="persistent_swelling_with_pain",
+        parent_flag_code="persistent_swelling",
+        category=RedFlagCategory.PATHWAY_SPECIFIC,
+        nice_basis="NG226 §1.8 / QS48",
+        patient_facing_question=(
+            "In the last 24 hours, has the swelling and pain stopped you walking, doing your exercises, or sleeping?"
+        ),
+        follow_up_escalation=EscalationTier.SAME_DAY,
+        validation_status=_DRAFT,
+    ),
+    "persistent_swelling_with_warmth": RedFlagProbe(
+        flag_code="persistent_swelling_with_warmth",
+        parent_flag_code="persistent_swelling",
+        category=RedFlagCategory.PATHWAY_SPECIFIC,
+        nice_basis="NG226 §1.8 / QS48",
+        patient_facing_question=(
+            "Has the swollen knee become hot to the touch, or has redness spread beyond the immediate wound area?"
+        ),
+        follow_up_escalation=EscalationTier.SAME_DAY,
+        validation_status=_DRAFT,
+    ),
+
+    # CLINICAL_REVIEW_NEEDED: pathway_map lists no fever_above_38_5 red
+    # flag for W43 (W37 and W40 both have it). QS48 SSI surveillance
+    # applies to all surgical wounds, so fever monitoring is still
+    # relevant. Current draft folds fever coverage into the
+    # wound_healing RQ ("a fever in the last 24 hours") rather than
+    # adding a probe set. Reviewer to confirm: should W43 gain the
+    # same 3-probe fever set (reading / symptoms / rigors) as W37/W40,
+    # or is the RQ-level coverage sufficient given the lower UKR SSI
+    # baseline?
+    #
+    # CLINICAL_REVIEW_NEEDED: persistent_swelling probes all SAME_DAY.
+    # Reviewer to confirm that co-firing of persistent_swelling_with_
+    # pain AND persistent_swelling_with_warmth should escalate to
+    # EMERGENCY_999 at the Phase 4 call-status layer (suggests acute
+    # prosthetic joint infection, which is a surgical emergency).
+}
+
+
 # ─── Module-level registries ───────────────────────────────────────────
 
 PATHWAYS: dict[str, PathwayPlaybook] = {
     "W37": W37_PLAYBOOK,
     "W38": W38_PLAYBOOK,
     "W40": W40_PLAYBOOK,
+    "W43": W43_PLAYBOOK,
 }
 TRAJECTORIES: dict[str, list[DomainTrajectoryEntry]] = {
     "W37": W37_TRAJECTORIES,
     "W38": W38_TRAJECTORIES,
     "W40": W40_TRAJECTORIES,
+    "W43": W43_TRAJECTORIES,
 }
 REQUIRED_QUESTIONS: dict[str, list[RequiredQuestion]] = {
     "W37": W37_REQUIRED_QUESTIONS,
     "W38": W38_REQUIRED_QUESTIONS,
     "W40": W40_REQUIRED_QUESTIONS,
+    "W43": W43_REQUIRED_QUESTIONS,
 }
 RED_FLAG_PROBES: dict[str, dict[str, RedFlagProbe]] = {
     "W37": W37_RED_FLAG_PROBES,
     "W38": W38_RED_FLAG_PROBES,
     "W40": W40_RED_FLAG_PROBES,
+    "W43": W43_RED_FLAG_PROBES,
 }
