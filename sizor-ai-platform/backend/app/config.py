@@ -43,5 +43,25 @@ class Settings(BaseSettings):
     smtp_from_email: str = "noreply@sizor.ai"
     smtp_use_tls: bool = True
 
+    # Phase 4 — coverage enforcement.
+    # When False, pipeline_tasks Task 1b short-circuits (no LLM call, no
+    # CallCoverageReport row written). Useful for staged rollout or to
+    # disable during incident response if the coverage classifier is
+    # behaving badly.
+    coverage_enforcement_enabled: bool = True
+
+    # Coverage threshold for dashboard flagging. Calls whose
+    # coverage_percentage falls below this value are surfaced to the
+    # clinician dashboard as incomplete.
+    #
+    # CLINICAL_REVIEW_NEEDED: default for v1; clinician to confirm per
+    # pathway risk profile; may fork by pathway in Phase 6. 0.80 is a
+    # placeholder — high-risk pathways (K60 heart failure, S01 stroke,
+    # Z03_MH mental health once unblocked) may warrant 0.95+ while
+    # lower-acuity pathways (H01 appendectomy, J18_CHOLE cholecystectomy)
+    # may be acceptable at 0.70. Phase 6 will likely replace this scalar
+    # with a per-pathway dict.
+    coverage_threshold: float = 0.80
+
 
 settings = Settings()
