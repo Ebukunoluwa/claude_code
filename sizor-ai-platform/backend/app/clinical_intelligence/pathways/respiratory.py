@@ -266,22 +266,50 @@ J44_RED_FLAG_PROBES: dict[str, RedFlagProbe] = {
         parent_flag_code=None,
         category=RedFlagCategory.ACUTE_SOB,
         nice_basis="NG115 §1.2",
+        # Concrete behavioural anchor. Chronically-breathless COPD
+        # patients normalise severe symptoms; "much worse than usual"
+        # relies on baseline memory and under-reports.
         patient_facing_question=(
-            "Is your breathlessness much worse today than it usually is during a flare-up?"
+            "Are you breathless even when you're just sitting still, not doing anything?"
         ),
         follow_up_escalation=EscalationTier.EMERGENCY_999,
         validation_status=_DRAFT,
     ),
-    "cyanosis": RedFlagProbe(
-        flag_code="cyanosis",
-        parent_flag_code=None,
+
+    # ══ cyanosis — split into central (999) vs peripheral (SAME_DAY) ═══
+    # Central cyanosis (lips, tongue) = hypoxia, 999.
+    # Peripheral cyanosis (fingertips, nails) = often benign (cold hands,
+    # poor circulation) and SAME_DAY only.
+    # Single unsplit probe would false-positive on cold hands AND
+    # false-negative when a patient only noticed fingertips.
+    "cyanosis_central": RedFlagProbe(
+        flag_code="cyanosis_central",
+        parent_flag_code="cyanosis",
         category=RedFlagCategory.PATHWAY_SPECIFIC,
         nice_basis="NG115 §1.2",
         patient_facing_question=(
-            "Have your lips, fingertips, or tongue turned a bluish or grey colour?"
+            "Have your lips or tongue turned a bluish or grey colour?"
         ),
         follow_up_escalation=EscalationTier.EMERGENCY_999,
         validation_status=_DRAFT,
+    ),
+    "cyanosis_peripheral": RedFlagProbe(
+        flag_code="cyanosis_peripheral",
+        parent_flag_code="cyanosis",
+        category=RedFlagCategory.PATHWAY_SPECIFIC,
+        nice_basis="NG115 §1.2",
+        patient_facing_question=(
+            "Have your fingertips or fingernails turned bluish?"
+        ),
+        follow_up_escalation=EscalationTier.SAME_DAY,
+        validation_status=_DRAFT,
+        # CLINICAL_REVIEW_NEEDED: reviewer may want to drop this probe
+        # entirely for the COPD cohort. Chronic peripheral cyanosis /
+        # nail changes are common and not clinically informative on
+        # any single call, so a SAME_DAY trigger here risks alert
+        # fatigue without adding signal. Kept in the draft so the
+        # clinical decision is visible; the default stance can swing
+        # to removal if the reviewer agrees.
     ),
     "acute_confusion": RedFlagProbe(
         flag_code="acute_confusion",
