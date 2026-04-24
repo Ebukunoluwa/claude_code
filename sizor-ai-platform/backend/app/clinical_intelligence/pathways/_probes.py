@@ -238,7 +238,7 @@ MOBILITY_PROBE = DomainProbeSet(
             "Have you had any falls or near-misses since you got home?"
         )),
         DomainProbeEntry(probe_wording=(
-            "How does it compare to before you went into hospital — is it improving?"
+            "How has it been since you got home — is it improving?"
         )),
         DomainProbeEntry(probe_wording=(
             "Is anything stopping you from doing your exercises or moving more?"
@@ -267,7 +267,7 @@ APPETITE_PROBE = DomainProbeSet(
             "Are you managing to eat regular meals, or is food feeling difficult?"
         )),
         DomainProbeEntry(probe_wording=(
-            "Has your appetite changed compared to before you went into hospital?"
+            "Has your appetite changed since you got home from hospital?"
         )),
         DomainProbeEntry(probe_wording=(
             "Any nausea or sickness — and if so, how often?"
@@ -300,16 +300,16 @@ BOWEL_BLADDER_PROBE = DomainProbeSet(
             "Have you been able to use the toilet normally — any difficulties?"
         )),
         DomainProbeEntry(probe_wording=(
-            "Any pain, burning, or discomfort when you pass urine?"
+            "Any pain, burning, or discomfort when you pee?"
         )),
         DomainProbeEntry(probe_wording=(
-            "Have your bowels opened since you left hospital?"
+            "Have you been able to poo since you left hospital?"
         )),
         DomainProbeEntry(probe_wording=(
-            "Any blood in your urine or stools?"
+            "Any blood when you pee, or in your poo?"
         )),
         DomainProbeEntry(probe_wording=(
-            "Any unexpected changes compared to what's normal for you?"
+            "Any unexpected changes in the last 24 hours?"
         )),
     ],
 )
@@ -369,8 +369,7 @@ FATIGUE_PROBE = DomainProbeSet(
     ),
     probes=[
         DomainProbeEntry(probe_wording=(
-            "How would you describe your energy levels compared to before "
-            "you went into hospital?"
+            "How have your energy levels been since you got home from hospital?"
         )),
         DomainProbeEntry(probe_wording=(
             "Are you able to get through the day, or do you need to rest a lot?"
