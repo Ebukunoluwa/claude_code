@@ -11,7 +11,7 @@ from ..database import get_db
 from ..models import CallSchedule, Patient, PatientMedicalProfile, CallRecord, SOAPNote, ClinicalExtraction, UrgencyFlag, LongitudinalSummary
 from ..config import settings
 from ..clinical_intelligence.pathway_map import OPCS_TO_NICE_MAP
-from ..clinical.benchmarks import BENCHMARK_DATA
+from ..clinical_intelligence.benchmarks import BENCHMARK_DATA
 
 
 def _benchmark_for_day(opcs_code: str, domain: str, day: int):

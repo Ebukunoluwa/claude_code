@@ -853,7 +853,7 @@ async def get_call_prompt(
     with NICE benchmark comparisons, and red flags.
     """
     from datetime import date
-    from ..clinical.benchmarks import BENCHMARK_DATA
+    from ..clinical_intelligence.benchmarks import BENCHMARK_DATA
 
     patient_result = await db.execute(
         select(Patient).where(Patient.patient_id == uuid.UUID(patient_id))
